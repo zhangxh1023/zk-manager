@@ -36,7 +36,7 @@ async fn list_children(
 }
 
 #[tauri::command]
-async fn get_data(state: tauri::State<'_, ZkClient>, path: String) -> Result<String, String> {
+async fn get_data(state: tauri::State<'_, ZkClient>, path: String) -> Result<Vec<u8>, String> {
   println!("获取 path data: {}", path);
   // 1. 在最小作用域内获取 Arc<Client>
   let client_arc = {
@@ -48,9 +48,7 @@ async fn get_data(state: tauri::State<'_, ZkClient>, path: String) -> Result<Str
       .ok_or("Client not initialized! Please init first.")?
   };
   let (data, _) = client_arc.get_data(&path).await.unwrap();
-  let data_str =
-    String::from_utf8(data).map_err(|e| format!("数据不是有效的 UTF-8 格式: {}", e))?;
-  Ok(data_str)
+  Ok(data)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
