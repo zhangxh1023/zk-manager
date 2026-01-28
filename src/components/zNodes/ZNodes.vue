@@ -1,23 +1,24 @@
 <script setup lang="ts">
-import { useDataStore } from '@/stores/data';
-import { ZkNodeInfo, ZkNodeList } from '@/types/nodes';
-import { invoke } from '@tauri-apps/api/core';
-import { ref, watch } from 'vue';
+import { useDataStore } from '../../stores/data';
+import type { ZkNodeInfo, ZkNodeList } from '../../types/nodes';
+import { ref } from 'vue';
+import { Item } from '../ui/item';
+import { Command, invoke } from '../../utils/tauri';
 
-const props = defineProps<{
+defineProps<{
   connectionUuid: string;
 }>();
 
-const getData = async (item: string) => {
-  const data = await invoke('get_data', { path: '/' + item });
-}
+// const getData = async (item: string) => {
+//   const data = await invoke('get_data', { path: '/' + item });
+// }
 
 let rootNodes: ZkNodeList = [];
 const localNodes = ref<ZkNodeList>([]);
 
 const fetchRoot = async () => {
   console.log('开始加载 nodes list');
-  const value: string[] = await invoke('list_children', { path: '/' });
+  const value: string[] = await invoke(Command.list_children, { path: '/' });
   rootNodes = [];
   for (const item of value) {
     rootNodes.push({
@@ -60,14 +61,14 @@ const fetchChildren = async (node: ZkNodeInfo) => {
   const clickPath = node.parentPath === '/'
     ? '/' + node.name
     : node.parentPath + '/' + node.name;
-  const data: string = await invoke('get_data', {
-    path: clickPath
+  const data: number[] = await invoke(Command.get_data, {
+    path: clickPath,
   });
   const dataStore = useDataStore();
   dataStore.setData(data);
 
-  const value: string[] = await invoke('list_children', {
-    path: clickPath
+  const value: string[] = await invoke(Command.list_children, {
+    path: clickPath,
   });
   node.nodes = [];
   node.nodes.push({
@@ -87,7 +88,19 @@ const fetchChildren = async (node: ZkNodeInfo) => {
 </script>
 
 <template>
-  <li v-for="node in localNodes" :key="node.parentPath + '/' + node.name" @click="fetchChildren(node)">
-    {{ node.name }}
-  </li>
+  <Item
+    v-for="node in localNodes"
+    :key="node.parentPath + '/' + node.name"
+    size="sm"
+    as-child
+  >
+    <a
+      href="#"
+      @click.prevent="fetchChildren(node)"
+    >
+      <ItemContent>
+        <ItemTitle>{{ node.name }}</ItemTitle>
+      </ItemContent>
+    </a>
+  </Item>
 </template>

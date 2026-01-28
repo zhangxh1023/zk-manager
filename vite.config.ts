@@ -1,5 +1,5 @@
-import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import VueDevTools from 'vite-plugin-vue-devtools';
@@ -11,7 +11,7 @@ export default defineConfig(async () => ({
   plugins: [
     vue(),
     tailwindcss(),
-    VueDevTools()
+    VueDevTools(),
   ],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -25,14 +25,14 @@ export default defineConfig(async () => ({
     host: host || false,
     hmr: host
       ? {
-        protocol: "ws",
+        protocol: 'ws',
         host,
         port: 1421,
       }
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      ignored: ['**/src-tauri/**'],
     },
   },
   resolve: {
