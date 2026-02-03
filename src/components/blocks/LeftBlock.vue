@@ -1,34 +1,20 @@
 <script setup lang="ts">
-import ZNodes from '../zNodes/ZNodes.vue';
+import ZNodes from '../zNodeList/ZNodeList.vue';
 import { Item, ItemActions, ItemContent, ItemTitle } from '../ui/item';
 import { ChevronRightIcon } from 'lucide-vue-next';
-import { onMounted, reactive, ref } from 'vue';
-import { getDb } from '../../db/db';
+import { reactive } from 'vue';
 import type { Connection } from '../../types/connection';
 import { Command, invoke } from '../../utils/tauri';
+import { useConnectionsStore } from '../../stores/connections';
+import { storeToRefs } from 'pinia';
+import AppMenus from '../appMenus/AppMenus.vue';
 
 type LocalConnection = (Connection & {
   focus: boolean
 });
-type LocalConnections = LocalConnection[];
 
-const connectionsRef = ref<LocalConnections>([]);
-
-onMounted(async () => {
-  console.log('db query start')
-  const db = await getDb();
-  const result = await db.select<{ uuid: string, url: string, name: string }[]>('SELECT * FROM connections');
-  const connections: LocalConnections = [];
-  for (const item of result) {
-    connections.push({
-      uuid: item.uuid,
-      url: item.url,
-      name: item.name,
-      focus: false,
-    });
-  }
-  connectionsRef.value = connections;
-})
+const connectionsStore = useConnectionsStore();
+const { connections } = storeToRefs(connectionsStore);
 
 type NodesInstance = InstanceType<typeof ZNodes>
 const nodesMap = reactive<{ [key: string]: NodesInstance }>({});
@@ -50,9 +36,10 @@ const connClick = async (connection: LocalConnection) => {
 </script>
 
 <template>
-  <div class="p-1">
+  <div class="p-2">
+    <AppMenus />
     <Item
-      v-for="connection in connectionsRef"
+      v-for="connection in connections"
       :key="connection.uuid"
       as-child
     >

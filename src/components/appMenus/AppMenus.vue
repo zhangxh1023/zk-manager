@@ -37,7 +37,7 @@ const saveConnection = async () => {
 </script>
 
 <template>
-  <div>
+  <div class="flex border-b">
     <Dialog>
       <DialogTrigger as-child>
         <Button
@@ -89,7 +89,6 @@ const saveConnection = async () => {
       class="cursor-pointer"
     >
       <Settings />
-      Settings
     </Button>
 
     <Button
@@ -98,7 +97,6 @@ const saveConnection = async () => {
       class="cursor-pointer"
     >
       <ClipboardClock />
-      logs
     </Button>
   </div>
 </template>
