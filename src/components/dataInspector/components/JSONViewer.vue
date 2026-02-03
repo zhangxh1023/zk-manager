@@ -3,9 +3,9 @@ import { ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { Codemirror } from 'vue-codemirror';
 import { json } from '@codemirror/lang-json';
-import { useZNodeTabsStore } from '../../../stores/zNodeTabs';
+import { useZnodeTabsStore } from '../../../stores/znodeTabs';
 
-const dataStore = useZNodeTabsStore();
+const dataStore = useZnodeTabsStore();
 const { data } = storeToRefs(dataStore);
 const jsonObject = ref('');
 watch(data, (value: number[]) => {

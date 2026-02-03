@@ -1,30 +1,30 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-export interface ZNodeTab {
+export interface ZnodeTab {
   connectionUuid: string;
   path: string;
-  zNodeData: number[];
+  znodeData: number[];
   isActive: boolean;
 }
 
-export const useZNodeTabsStore = defineStore('zNodeTabs', () => {
-  const zNodeTabs = ref<ZNodeTab[]>([]);
+export const useZnodeTabsStore = defineStore('znodeTabs', () => {
+  const znodeTabs = ref<ZnodeTab[]>([]);
 
-  const addZNodeTab = (newTab: ZNodeTab) => {
+  const addTab = (newTab: ZnodeTab) => {
     // todo temp
-    for (const item of zNodeTabs.value) {
+    for (const item of znodeTabs.value) {
       item.isActive = false;
     }
-    zNodeTabs.value.push(newTab);
+    znodeTabs.value.push(newTab);
   }
 
-  const delZNodeTab = (path: string) => {
-    zNodeTabs.value = zNodeTabs.value.filter(item => item.path !== path);
+  const delTab = (path: string) => {
+    znodeTabs.value = znodeTabs.value.filter(item => item.path !== path);
   }
 
   const setActiveTab = (path: string) => {
-    for (const item of zNodeTabs.value) {
+    for (const item of znodeTabs.value) {
       if (item.path === path) {
         item.isActive = true;
       } else {
@@ -34,9 +34,9 @@ export const useZNodeTabsStore = defineStore('zNodeTabs', () => {
   }
 
   return {
-    zNodeTabs,
-    addZNodeTab,
-    delZNodeTab,
+    znodeTabs,
+    addTab,
+    delTab,
     setActiveTab,
   }
 })

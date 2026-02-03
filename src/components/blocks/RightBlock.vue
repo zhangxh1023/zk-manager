@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { useZNodeTabsStore } from '../../stores/zNodeTabs';
+import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import DataInspector from '../dataInspector/DataInspector.vue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { X } from 'lucide-vue-next';
 import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '../ui/context-menu';
 
-const zNodeTabsStore = useZNodeTabsStore();
+const znodeTabsStore = useZnodeTabsStore();
 const activeTab = ref('');
-watch(zNodeTabsStore.zNodeTabs, () => {
-  console.log(zNodeTabsStore.zNodeTabs);
-  for (const tab of zNodeTabsStore.zNodeTabs) {
+watch(znodeTabsStore.znodeTabs, () => {
+  console.log(znodeTabsStore.znodeTabs);
+  for (const tab of znodeTabsStore.znodeTabs) {
     if (tab.isActive) {
       activeTab.value = tab.path;
       break;
@@ -19,20 +19,20 @@ watch(zNodeTabsStore.zNodeTabs, () => {
   }
 }, { immediate: true })
 
-const closeZNodeTab = (path: string) => {
+const closeZnodeTab = (path: string) => {
   console.log(path)
-  zNodeTabsStore.delZNodeTab(path);
+  znodeTabsStore.delTab(path);
 }
 
 const clickTab = (path: string) => {
-  zNodeTabsStore.setActiveTab(path);
+  znodeTabsStore.setActiveTab(path);
 }
 
 </script>
 
 <template>
   <div
-    v-show="zNodeTabsStore.zNodeTabs.length" 
+    v-show="znodeTabsStore.znodeTabs.length" 
     class="p-2 h-full box-border"
   >
     <Tabs
@@ -42,7 +42,7 @@ const clickTab = (path: string) => {
       <ScrollArea class="w-full">
         <TabsList class="w-full justify-start">
           <ContextMenu
-            v-for="tab in zNodeTabsStore.zNodeTabs"
+            v-for="tab in znodeTabsStore.znodeTabs"
             :key="tab.path"
           >
             <ContextMenuTrigger as-child>
@@ -54,7 +54,7 @@ const clickTab = (path: string) => {
                 {{ tab.path }}
                 <span
                   class="ml-2"
-                  @click.stop="closeZNodeTab(tab.path)"
+                  @click.stop="closeZnodeTab(tab.path)"
                 >
                   <X class="w-4 h-4" />
                 </span>
@@ -70,7 +70,7 @@ const clickTab = (path: string) => {
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
       <TabsContent
-        v-for="tab in zNodeTabsStore.zNodeTabs"
+        v-for="tab in znodeTabsStore.znodeTabs"
         :key="tab.path"
         :value="tab.path"
       >

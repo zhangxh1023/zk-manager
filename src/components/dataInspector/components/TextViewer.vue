@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia';
 import { ref, watch } from 'vue';
-import { useZNodeTabsStore } from '../../../stores/zNodeTabs';
+import { useZnodeTabsStore } from '../../../stores/znodeTabs';
 import { Textarea } from '../../ui/textarea';
 
-const dataStore = useZNodeTabsStore();
+const dataStore = useZnodeTabsStore();
 const { data } = storeToRefs(dataStore);
 const text = ref('');
 watch(data, (value: number[], _: number[] | undefined) => {

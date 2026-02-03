@@ -9,7 +9,7 @@ export interface Connection {
   focus: boolean;
   isConnected: boolean;
   path: string;
-  zNodes: string[];
+  znodes: string[];
 }
 
 export const useConnectionsStore = defineStore('connections', () => {
@@ -26,7 +26,7 @@ export const useConnectionsStore = defineStore('connections', () => {
         focus: false,
         isConnected: false,
         path: '/',
-        zNodes: [],
+        znodes: [],
       });
     }
   }

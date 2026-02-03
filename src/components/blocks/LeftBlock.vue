@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import ZNodes from '../zNodeList/ZNodeList.vue';
+import ZnodeList from '../znodeList/ZnodeList.vue';
 import { Item, ItemActions, ItemContent, ItemTitle } from '../ui/item';
 import { ChevronRightIcon } from 'lucide-vue-next';
 import { reactive } from 'vue';
@@ -16,7 +16,7 @@ type LocalConnection = (Connection & {
 const connectionsStore = useConnectionsStore();
 const { connections } = storeToRefs(connectionsStore);
 
-type NodesInstance = InstanceType<typeof ZNodes>
+type NodesInstance = InstanceType<typeof ZnodeList>
 const nodesMap = reactive<{ [key: string]: NodesInstance }>({});
 const callChild = (uuid: string) => {
   console.log(nodesMap);
@@ -58,7 +58,7 @@ const connClick = async (connection: LocalConnection) => {
         </ItemContent>
       </a>
       <div v-show="connection.focus">
-        <ZNodes
+        <ZnodeList
           :ref="(el: any) => { if (el) nodesMap[connection.uuid] = el }"
           :connection-uuid="connection.uuid"
         />

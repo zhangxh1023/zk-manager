@@ -4,9 +4,9 @@ import { storeToRefs } from 'pinia';
 import { Codemirror } from 'vue-codemirror';
 import { xml } from '@codemirror/lang-xml';
 import xmlFormat from 'xml-formatter';
-import { useZNodeTabsStore } from '../../../stores/zNodeTabs';
+import { useZnodeTabsStore } from '../../../stores/znodeTabs';
 
-const dataStore = useZNodeTabsStore();
+const dataStore = useZnodeTabsStore();
 const { data } = storeToRefs(dataStore);
 const formattedStr = ref('');
 watch(data, (value: number[]) => {

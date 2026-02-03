@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useZNodeTabsStore } from '../../stores/zNodeTabs';
+import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import type { ZkNodeInfo, ZkNodeList } from '../../types/nodes';
 import { ref } from 'vue';
 import { Item } from '../ui/item';
@@ -64,11 +64,11 @@ const fetchChildren = async (node: ZkNodeInfo) => {
   const data: number[] = await invoke(Command.get_data, {
     path: clickPath,
   });
-  const dataStore = useZNodeTabsStore();
-  dataStore.addZNodeTab({
+  const dataStore = useZnodeTabsStore();
+  dataStore.addTab({
     connectionUuid: '',
     path: clickPath,
-    zNodeData: data,
+    znodeData: data,
     isActive: true,
   })
 
