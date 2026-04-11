@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -7,10 +8,18 @@ import {
 import LeftBolck from './components/blocks/LeftBlock.vue';
 import RightBlock from './components/blocks/RightBlock.vue';
 import { useConnectionsStore } from './stores/connections';
+import { useSettingsStore } from './stores/settings';
+import { useI18n } from 'vue-i18n';
 
 const connectionsStore = useConnectionsStore();
-connectionsStore.reloadConnections();
+const settingsStore = useSettingsStore();
+const { locale } = useI18n();
 
+onMounted(async () => {
+  await settingsStore.load();
+  locale.value = settingsStore.settings.language;
+  connectionsStore.reloadConnections();
+});
 </script>
 
 <template>

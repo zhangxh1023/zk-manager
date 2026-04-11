@@ -1,81 +1,55 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
+import { useI18n } from 'vue-i18n';
 import DataInspector from '../dataInspector/DataInspector.vue';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { X } from 'lucide-vue-next';
-import { ScrollArea, ScrollBar } from '../ui/scroll-area';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '../ui/context-menu';
 
+const { t } = useI18n();
 const znodeTabsStore = useZnodeTabsStore();
-const activeTab = ref('');
-watch(znodeTabsStore.znodeTabs, () => {
-  console.log(znodeTabsStore.znodeTabs);
-  for (const tab of znodeTabsStore.znodeTabs) {
-    if (tab.isActive) {
-      activeTab.value = tab.path;
-      break;
-    }
-  }
-}, { immediate: true })
 
-const closeZnodeTab = (path: string) => {
-  console.log(path)
+const closeTab = (path: string, event: Event) => {
+  event.stopPropagation();
   znodeTabsStore.delTab(path);
-}
+};
 
-const clickTab = (path: string) => {
+const setActive = (path: string) => {
   znodeTabsStore.setActiveTab(path);
-}
-
+};
 </script>
 
 <template>
-  <div
-    v-show="znodeTabsStore.znodeTabs.length" 
-    class="p-2 h-full box-border"
-  >
-    <Tabs
-      :model-value="activeTab"
-      class="w-full"
-    >
-      <ScrollArea class="w-full">
-        <TabsList class="w-full justify-start">
-          <ContextMenu
-            v-for="tab in znodeTabsStore.znodeTabs"
-            :key="tab.path"
-          >
-            <ContextMenuTrigger as-child>
-              <TabsTrigger
-                :value="tab.path"
-                class="cursor-pointer max-w-50"
-                @click="clickTab(tab.path)"
-              >
-                {{ tab.path }}
-                <span
-                  class="ml-2"
-                  @click.stop="closeZnodeTab(tab.path)"
-                >
-                  <X class="w-4 h-4" />
-                </span>
-              </TabsTrigger>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem>close</ContextMenuItem>
-              <ContextMenuItem>close others</ContextMenuItem>
-              <ContextMenuItem>close to the Right</ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-        </TabsList>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
-      <TabsContent
+  <div class="h-full flex flex-col">
+    <div v-if="znodeTabsStore.znodeTabs.length" class="flex-1 flex flex-col p-2 overflow-hidden">
+      <!-- Tab bar -->
+      <div class="flex shrink-0 border-b pb-2 mb-2">
+        <div
+          v-for="tab in znodeTabsStore.znodeTabs"
+          :key="tab.path"
+          class="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-l-md rounded-r-md mr-1 cursor-pointer transition-colors"
+          :class="tab.isActive
+            ? 'bg-primary text-primary-foreground border-primary'
+            : 'bg-muted hover:bg-muted/80 border-muted-foreground/20'"
+          @click="setActive(tab.path)"
+        >
+          <span class="truncate max-w-32">{{ tab.path.split('/').pop() || '/' }}</span>
+          <X
+            class="w-3 h-3 shrink-0 hover:text-destructive"
+            @click="closeTab(tab.path, $event)"
+          />
+        </div>
+      </div>
+      <!-- Tab content -->
+      <div
         v-for="tab in znodeTabsStore.znodeTabs"
         :key="tab.path"
-        :value="tab.path"
+        v-show="tab.isActive"
+        class="flex-1 overflow-hidden"
       >
-        <DataInspector />
-      </TabsContent>
-    </Tabs>
+        <DataInspector :tab="tab" />
+      </div>
+    </div>
+    <div v-else class="h-full flex items-center justify-center text-muted-foreground text-sm">
+      {{ t('tabs.selectNode') }}
+    </div>
   </div>
 </template>

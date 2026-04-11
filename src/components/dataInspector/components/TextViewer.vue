@@ -1,29 +1,18 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia';
-import { ref, watch } from 'vue';
-import { useZnodeTabsStore } from '../../../stores/znodeTabs';
 import { Textarea } from '../../ui/textarea';
+defineProps<{
+  modelValue: string;
+}>();
 
-const dataStore = useZnodeTabsStore();
-const { data } = storeToRefs(dataStore);
-const text = ref('');
-watch(data, (value: number[], _: number[] | undefined) => {
-  console.log(value);
-  if (!value || value.length === 0) {
-    text.value = '';
-    return;
-  }
-  const uint8Array = new Uint8Array(value);
-  const decoder = new TextDecoder('utf-8');
-  text.value = decoder.decode(uint8Array);
-
-}, { immediate: true })
-
+defineEmits<{
+  (event: 'update:modelValue', value: string): void;
+}>();
 </script>
 
 <template>
   <Textarea
-    :model-value="text"
+    :model-value="modelValue"
     class="resize-none h-full"
+    @update:model-value="$emit('update:modelValue', String($event))"
   />
 </template>

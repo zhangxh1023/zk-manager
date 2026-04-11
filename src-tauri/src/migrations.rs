@@ -7,6 +7,12 @@ pub fn get_migrations() -> Vec<Migration> {
       description: "create_initial_tables",
       sql: include_str!("./migrations/v1.sql"),
       kind: MigrationKind::Up,
+    },
+    Migration {
+      version: 2,
+      description: "add_auth_and_settings_tables",
+      sql: include_str!("./migrations/v2.sql"),
+      kind: MigrationKind::Up,
     }
   ]
 }
