@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
+import { useZkTreeStore } from '../../stores/zkTree';
 import { zkApi } from '../../api/zk';
 import { useI18n } from 'vue-i18n';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -26,6 +27,7 @@ import {
 } from '../ui/dialog';
 import type { ZnodeTab } from '../../stores/znodeTabs';
 import type { ZkAclEntry } from '../../types/znodeDetails';
+import { showToast } from '../../utils/toast';
 
 const { t } = useI18n();
 
@@ -35,6 +37,7 @@ const props = defineProps<{
 
 const znodeTabsStore = useZnodeTabsStore();
 const logsStore = useLogsStore();
+const zkTreeStore = useZkTreeStore();
 
 const parser = ref('text');
 const editValue = ref('');
@@ -49,6 +52,9 @@ const newNodeData = ref('');
 // ACL editing
 const editingAcl = ref<ZkAclEntry | null>(null);
 const showAclDialog = ref(false);
+
+// Delete dialog
+const showDeleteDialog = ref(false);
 
 const formatTimestamp = (value: number) => {
   if (!value) return '-';
@@ -114,23 +120,30 @@ const save = async () => {
     props.tab.stat = details.stat;
     props.tab.acl = details.acl;
     await logsStore.addLog('current', 'SET_DATA', `Updated data of ${props.tab.path}`);
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    showToast.success(t('node.saveSuccess'));
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    showToast.error(errorMsg);
   } finally {
     isSubmitting.value = false;
   }
 };
 
 const removeNode = async () => {
-  if (!window.confirm(t('node.confirmDelete', { path: props.tab.path }))) return;
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
     await zkApi.deleteNode(props.tab.path);
     await logsStore.addLog('current', 'DELETE', `Deleted node ${props.tab.path}`);
+    // Invalidate cache and refresh if needed
+    await zkTreeStore.onNodeDeleted(props.tab.connectionUuid, props.tab.path);
     znodeTabsStore.delTab(props.tab.path);
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    showDeleteDialog.value = false;
+    showToast.success(t('node.deleteSuccess'));
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    showToast.error(errorMsg);
+    // Don't set errorMessage since toast is already showing the error
   } finally {
     isSubmitting.value = false;
   }
@@ -141,6 +154,11 @@ const openCreateDialog = () => {
   newNodeName.value = '';
   newNodeData.value = '';
   showCreateDialog.value = true;
+};
+
+// Locate this node in the tree (expand path and scroll to it)
+const locateInTree = async () => {
+  await zkTreeStore.locateNode(props.tab.connectionUuid, props.tab.path);
 };
 
 // Create child node
@@ -156,12 +174,14 @@ const createChildNode = async () => {
     const data = encodeText(newNodeData.value);
     await zkApi.createNode(childPath, data);
     await logsStore.addLog('current', 'CREATE', `Created node ${childPath}`);
+    // Invalidate cache and refresh if needed
+    await zkTreeStore.onNodeCreated(props.tab.connectionUuid, props.tab.path);
     showCreateDialog.value = false;
-    alert(t('node.createSuccess', { path: childPath }));
-  } catch (error) {
+    showToast.success(t('node.createSuccess', { path: childPath }));
+  } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
     await logsStore.addLog('current', 'CREATE', `Failed to create node ${childPath}: ${errMsg}`);
-    errorMessage.value = errMsg;
+    showToast.error(errMsg);
   } finally {
     isSubmitting.value = false;
   }
@@ -242,7 +262,7 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
         variant="destructive"
         size="sm"
         :disabled="isSubmitting"
-        @click="removeNode"
+        @click="showDeleteDialog = true"
       >
         {{ t('node.delete') }}
       </Button>
@@ -253,6 +273,13 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
         @click="refresh"
       >
         {{ t('tabs.refresh') }}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        @click="locateInTree"
+      >
+        {{ t('tabs.locate') }}
       </Button>
     </div>
 
@@ -407,6 +434,24 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
           <Button @click="saveAcl" :disabled="isSubmitting">{{ t('connection.save') }}</Button>
         </DialogFooter>
         <p v-if="errorMessage" class="text-sm text-red-500">{{ errorMessage }}</p>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Delete Confirmation Dialog -->
+    <Dialog v-model:open="showDeleteDialog">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{{ t('node.confirmDeleteTitle') }}</DialogTitle>
+        </DialogHeader>
+        <div class="py-4">
+          <p class="text-sm text-muted-foreground">
+            {{ t('node.confirmDeleteMsg', { path: tab.path }) }}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showDeleteDialog = false">{{ t('connection.cancel') }}</Button>
+          <Button variant="destructive" @click="removeNode" :disabled="isSubmitting">{{ t('node.delete') }}</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   </div>

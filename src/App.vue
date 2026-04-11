@@ -10,6 +10,8 @@ import RightBlock from './components/blocks/RightBlock.vue';
 import { useConnectionsStore } from './stores/connections';
 import { useSettingsStore } from './stores/settings';
 import { useI18n } from 'vue-i18n';
+import { Toaster } from './components/ui/sonner';
+import 'vue-sonner/style.css';
 
 const connectionsStore = useConnectionsStore();
 const settingsStore = useSettingsStore();
@@ -36,6 +38,7 @@ onMounted(async () => {
         <RightBlock />
       </ResizablePanel>
     </ResizablePanelGroup>
+    <Toaster position="bottom-right" />
   </div>
 </template>
 

@@ -15,16 +15,22 @@ export default {
     delete: '删除',
     disconnect: '断开连接',
     confirmDelete: '确定删除此连接吗？',
+    gotoNode: '跳转到节点',
+    nodePath: '节点路径',
+    goto: '跳转',
   },
   node: {
     createChild: '创建子节点',
     delete: '删除',
     openInNewTab: '新标签页打开',
     confirmDelete: '确定删除节点 {path} 吗？',
+    confirmDeleteTitle: '确认删除',
+    confirmDeleteMsg: '确定要删除节点 {path} 吗？此操作无法撤销。',
     createSuccess: '节点 {path} 创建成功',
     createFailed: '创建节点失败',
     deleteSuccess: '节点删除成功',
     deleteFailed: '删除节点失败',
+    saveSuccess: '保存成功',
   },
   tabs: {
     data: '数据',
@@ -32,6 +38,7 @@ export default {
     meta: '元数据',
     save: '保存',
     refresh: '刷新',
+    locate: '定位',
     selectNode: '选择一个节点查看详情',
   },
   acl: {
@@ -60,6 +67,7 @@ export default {
     close: '关闭',
     clear: '清空日志',
     confirmClear: '确定要清空所有日志吗？',
+    cleared: '日志已清空',
   },
   createNode: {
     title: '创建子节点',

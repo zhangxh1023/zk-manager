@@ -18,6 +18,7 @@ import { useConnectionsStore } from '../../stores/connections';
 import { useSettingsStore } from '../../stores/settings';
 import { useLogsStore } from '../../stores/logs';
 import i18n from '../../i18n';
+import { showToast } from '../../utils/toast';
 
 const { t } = i18n.global;
 
@@ -110,8 +111,8 @@ const nextPage = () => {
 };
 
 const clearLogs = async () => {
-  if (!window.confirm(t('logs.confirmClear'))) return;
   await logsStore.clearLogs();
+  showToast.success(t('logs.cleared') || 'Logs cleared');
 };
 </script>
 

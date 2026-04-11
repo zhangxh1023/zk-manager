@@ -15,16 +15,22 @@ export default {
     delete: 'Delete',
     disconnect: 'Disconnect',
     confirmDelete: 'Are you sure you want to delete this connection?',
+    gotoNode: 'Go to Node',
+    nodePath: 'Node Path',
+    goto: 'Go',
   },
   node: {
     createChild: 'create child node',
     delete: 'Delete',
     openInNewTab: 'Open in New Tab',
     confirmDelete: 'Are you sure you want to delete node {path}?',
+    confirmDeleteTitle: 'Confirm Delete',
+    confirmDeleteMsg: 'Are you sure you want to delete node {path}? This action cannot be undone.',
     createSuccess: 'Node {path} created successfully',
     createFailed: 'Failed to create node',
     deleteSuccess: 'Node deleted successfully',
     deleteFailed: 'Failed to delete node',
+    saveSuccess: 'Saved successfully',
   },
   tabs: {
     data: 'Data',
@@ -32,6 +38,7 @@ export default {
     meta: 'Meta',
     save: 'Save',
     refresh: 'refresh',
+    locate: 'Locate',
     selectNode: 'select a node to view its details',
   },
   acl: {
@@ -60,6 +67,7 @@ export default {
     close: 'Close',
     clear: 'Clear All',
     confirmClear: 'Are you sure you want to clear all logs?',
+    cleared: 'Logs cleared',
   },
   createNode: {
     title: 'Create Child Node',

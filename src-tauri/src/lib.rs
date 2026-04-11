@@ -67,9 +67,25 @@ struct ZkClient {
 }
 
 #[tauri::command]
-async fn connect_zk(state: tauri::State<'_, ZkClient>, server: String) -> Result<String, String> {
+async fn connect_zk(state: tauri::State<'_, ZkClient>, server: String, username: Option<String>, password: Option<String>) -> Result<String, String> {
   println!("尝试连接 ZK: {}", server);
-  let client = zookeeper_client::Client::connect(&server).await.unwrap();
+  let client = zookeeper_client::Client::connect(&server).await.map_err(|e| {
+    println!("连接失败: {:?}", e);
+    format!("连接失败: {:?}", e)
+  })?;
+
+  // 如果提供了认证信息，进行认证
+  if let (Some(u), Some(p)) = (username, password) {
+    println!("进行认证: {}", u);
+    let auth_data = format!("{}:{}", u, p);
+    match client.auth("digest", auth_data.as_bytes()).await {
+      Ok(_) => println!("认证成功"),
+      Err(e) => println!("认证失败: {:?}", e),
+    }
+  } else {
+    println!("未提供认证信息，使用匿名访问");
+  }
+
   let mut client_lock = state.client.lock().unwrap();
   *client_lock = Some(Arc::new(client));
   println!("连接成功");
@@ -91,7 +107,7 @@ async fn list_children(
       .cloned()
       .ok_or("Client not initialized! Please init first.")?
   };
-  let (children, _) = client_arc.get_children(&path).await.unwrap();
+  let (children, _) = client_arc.get_children(&path).await.map_err(|e| e.to_string())?;
   Ok(children)
 }
 
@@ -107,7 +123,7 @@ async fn get_data(state: tauri::State<'_, ZkClient>, path: String) -> Result<Vec
       .cloned()
       .ok_or("Client not initialized! Please init first.")?
   };
-  let (data, stat) = client_arc.get_data(&path).await.unwrap();
+  let (data, stat) = client_arc.get_data(&path).await.map_err(|e| e.to_string())?;
   println!("--- 节点元数据 ---");
   println!("创建时间 (czxid): {}", stat.czxid);
   println!("修改时间 (mzxid): {}", stat.mzxid);
@@ -130,7 +146,7 @@ async fn get_acl(state: tauri::State<'_, ZkClient>, path: String) -> Result<Vec<
       .cloned()
       .ok_or("Client not initialized! Please init first.")?
   };
-  let (acl, stat) = client_arc.get_acl(&path).await.unwrap();
+  let (acl, stat) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
   println!("--- 节点元数据 ---");
   println!("创建时间 (czxid): {}", stat.czxid);
   println!("修改时间 (mzxid): {}", stat.mzxid);
@@ -153,8 +169,8 @@ async fn get_znode_details(state: tauri::State<'_, ZkClient>, path: String) -> R
       .cloned()
       .ok_or("Client not initialized! Please init first.")?
   };
-  let (data, stat) = client_arc.get_data(&path).await.unwrap();
-  let (acl, _) = client_arc.get_acl(&path).await.unwrap();
+  let (data, stat) = client_arc.get_data(&path).await.map_err(|e| e.to_string())?;
+  let (acl, _) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
 
   let details = ZnodeDetails {
     data,
@@ -175,10 +191,10 @@ async fn set_data(state: tauri::State<'_, ZkClient>, path: String, data: Vec<u8>
       .ok_or("Client not initialized! Please init first.")?
   };
   // 使用版本 -1 忽略版本检查
-  let stat = client_arc.set_data(&path, data.as_slice(), Some(-1)).await.unwrap();
+  let stat = client_arc.set_data(&path, data.as_slice(), Some(-1)).await.map_err(|e| e.to_string())?;
   // 获取更新后的数据和 ACL
-  let (new_data, _) = client_arc.get_data(&path).await.unwrap();
-  let (acl, _) = client_arc.get_acl(&path).await.unwrap();
+  let (new_data, _) = client_arc.get_data(&path).await.map_err(|e| e.to_string())?;
+  let (acl, _) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
 
   let details = ZnodeDetails {
     data: new_data,
@@ -199,8 +215,17 @@ async fn delete_node(state: tauri::State<'_, ZkClient>, path: String) -> Result<
       .ok_or("Client not initialized! Please init first.")?
   };
   // 使用版本 -1 忽略版本检查
-  client_arc.delete(&path, Some(-1)).await.unwrap();
-  Ok("SUCCESS".to_string())
+  match client_arc.delete(&path, Some(-1)).await {
+    Ok(_) => Ok("SUCCESS".to_string()),
+    Err(e) => {
+      let err_str = format!("{:?}", e);
+      if err_str.contains("NotEmpty") {
+        Err("NOT_EMPTY: Cannot delete node with children. Please delete child nodes first.".to_string())
+      } else {
+        Err(format!("删除失败: {:?}", e))
+      }
+    }
+  }
 }
 
 #[tauri::command]
@@ -213,7 +238,7 @@ async fn create_node(state: tauri::State<'_, ZkClient>, path: String, data: Vec<
       .cloned()
       .ok_or("Client not initialized! Please init first.")?
   };
-  // 使用持久节点创建，开放所有权限
+  // 使用持久节点创建，使用 world:anyone ACL
   let options = CreateMode::Persistent.with_acls(Acls::anyone_all());
   println!("调用 create: path={}, data_len={}", path, data.len());
   match client_arc.create(&path, data.as_slice(), &options).await {
@@ -250,7 +275,7 @@ async fn set_acl(state: tauri::State<'_, ZkClient>, path: String, acl_entries: V
   }).collect();
   let acls = acls?;
   // 使用版本 -1 忽略版本检查
-  let _stat = client_arc.set_acl(&path, &acls, Some(-1)).await.unwrap();
+  let _stat = client_arc.set_acl(&path, &acls, Some(-1)).await.map_err(|e| e.to_string())?;
   Ok("SUCCESS".to_string())
 }
 

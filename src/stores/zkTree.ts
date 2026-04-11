@@ -2,113 +2,150 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { zkApi } from '../api/zk';
 
-export interface ZkTreeNode {
+export interface ZkListNode {
   name: string;
   path: string;
   hasChildren: boolean;
-  expanded: boolean;
-  children: ZkTreeNode[];
-  loading: boolean;
 }
 
 export const useZkTreeStore = defineStore('zkTree', () => {
-  // key: connectionUuid, value: root nodes of that connection's tree
-  const trees = ref<Record<string, ZkTreeNode[]>>({});
+  // Per connection: current path being viewed
+  const currentPaths = ref<Record<string, string>>({});
 
-  const getNodeByPath = (connectionUuid: string, path: string): ZkTreeNode | null => {
-    const roots = trees.value[connectionUuid];
-    if (!roots) return null;
+  // Cache: `${connectionUuid}:${path}` -> ZkListNode[]
+  const childrenCache = ref<Record<string, ZkListNode[]>>({});
 
-    const search = (nodes: ZkTreeNode[], targetPath: string): ZkTreeNode | null => {
-      for (const node of nodes) {
-        if (node.path === targetPath) return node;
-        const found = search(node.children, targetPath);
-        if (found) return found;
-      }
-      return null;
-    };
+  // Loading states: `${connectionUuid}:${path}` -> boolean
+  const loadingStates = ref<Record<string, boolean>>({});
 
-    return search(roots, path);
+  const cacheKey = (connectionUuid: string, path: string) => `${connectionUuid}:${path}`;
+
+  // Get current path for a connection
+  const getCurrentPath = (connectionUuid: string): string => {
+    return currentPaths.value[connectionUuid] || '/';
   };
 
-  const getParentNode = (connectionUuid: string, path: string): ZkTreeNode | null => {
-    const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
-    return getNodeByPath(connectionUuid, parentPath);
+  // Normalize path: remove trailing slash (except for root '/')
+  const normalizePath = (path: string): string => {
+    if (path === '/') return path;
+    return path.endsWith('/') ? path.slice(0, -1) : path;
   };
 
-  const fetchRoot = async (connectionUuid: string) => {
-    const children = await zkApi.listChildren('/');
-    trees.value[connectionUuid] = children.map(name => ({
-      name,
-      path: '/' + name,
-      hasChildren: true, // assume has children until proven otherwise
-      expanded: false,
-      children: [],
-      loading: false,
-    }));
+  // Navigate to a path for a connection
+  const navigateTo = async (connectionUuid: string, path: string) => {
+    const normalized = normalizePath(path);
+    currentPaths.value[connectionUuid] = normalized;
+    await fetchChildren(connectionUuid, normalized);
   };
 
-  const fetchChildren = async (node: ZkTreeNode) => {
-    if (node.loading) return;
-    node.loading = true;
+  // Navigate up one level
+  const navigateUp = async (connectionUuid: string) => {
+    const current = getCurrentPath(connectionUuid);
+    if (current === '/') return;
+    const parent = current.substring(0, current.lastIndexOf('/')) || '/';
+    await navigateTo(connectionUuid, parent);
+  };
+
+  // Fetch children for a path (with caching)
+  const fetchChildren = async (connectionUuid: string, path: string, forceRefresh = false) => {
+    const key = cacheKey(connectionUuid, path);
+    if (!forceRefresh && childrenCache.value[key] !== undefined) {
+      return childrenCache.value[key];
+    }
+    if (loadingStates.value[key]) {
+      return [];
+    }
+
+    loadingStates.value[key] = true;
     try {
-      const children = await zkApi.listChildren(node.path);
-      node.children = children.map(name => {
-        const childPath = node.path === '/' ? `/${name}` : `${node.path}/${name}`;
+      const childNames = await zkApi.listChildren(path);
+      childrenCache.value[key] = childNames.map(name => {
+        const childPath = path === '/' ? `/${name}` : `${path}/${name}`;
         return {
           name,
           path: childPath,
           hasChildren: true,
-          expanded: false,
-          children: [],
-          loading: false,
         };
       });
-      node.hasChildren = children.length > 0;
+      return childrenCache.value[key];
+    } catch (err) {
+      console.error(`Failed to fetch children for ${path}:`, err);
+      throw err; // Re-throw to propagate error
     } finally {
-      node.loading = false;
+      loadingStates.value[key] = false;
     }
   };
 
-  const toggle = async (_connectionUuid: string, node: ZkTreeNode) => {
-    if (!node.hasChildren) return;
-    if (!node.expanded) {
-      await fetchChildren(node);
+  // Get children (from cache)
+  const getChildren = (connectionUuid: string, path: string): ZkListNode[] => {
+    const key = cacheKey(connectionUuid, path);
+    return childrenCache.value[key] || [];
+  };
+
+  // Check if loading
+  const isLoading = (connectionUuid: string, path: string): boolean => {
+    const key = cacheKey(connectionUuid, path);
+    return loadingStates.value[key] || false;
+  };
+
+  // Locate: navigate to the given path (show its children in the list)
+  const locateNode = async (connectionUuid: string, path: string) => {
+    await navigateTo(connectionUuid, path);
+  };
+
+  // Go to node: navigate to an arbitrary path
+  const goToNode = async (connectionUuid: string, path: string) => {
+    await navigateTo(connectionUuid, path);
+  };
+
+  // Refresh current path
+  const refreshCurrentPath = async (connectionUuid: string) => {
+    const path = getCurrentPath(connectionUuid);
+    await fetchChildren(connectionUuid, path, true);
+  };
+
+  // After delete: invalidate parent cache and refresh if needed
+  const onNodeDeleted = async (connectionUuid: string, path: string) => {
+    const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
+    const key = cacheKey(connectionUuid, parentPath);
+    delete childrenCache.value[key];
+    if (getCurrentPath(connectionUuid) === parentPath) {
+      await fetchChildren(connectionUuid, parentPath, true);
     }
-    node.expanded = !node.expanded;
   };
 
-  const refreshNode = async (connectionUuid: string, path: string) => {
-    const node = getNodeByPath(connectionUuid, path);
-    if (!node) return;
-    node.children = [];
-    node.expanded = false;
-    await fetchChildren(node);
-  };
-
-  const removeNode = (connectionUuid: string, path: string) => {
-    const parent = getParentNode(connectionUuid, path);
-    if (parent) {
-      parent.children = parent.children.filter(n => n.path !== path);
-    } else {
-      // it's a root node
-      trees.value[connectionUuid] = trees.value[connectionUuid].filter(n => n.path !== path);
+  // After create: invalidate parent cache and refresh if needed
+  const onNodeCreated = async (connectionUuid: string, parentPath: string) => {
+    const key = cacheKey(connectionUuid, parentPath);
+    delete childrenCache.value[key];
+    if (getCurrentPath(connectionUuid) === parentPath) {
+      await fetchChildren(connectionUuid, parentPath, true);
     }
   };
 
-  const clearTree = (connectionUuid: string) => {
-    delete trees.value[connectionUuid];
+  // Clear all data for a connection
+  const clearConnection = (connectionUuid: string) => {
+    delete currentPaths.value[connectionUuid];
+    const prefix = `${connectionUuid}:`;
+    Object.keys(childrenCache.value).forEach(key => {
+      if (key.startsWith(prefix)) {
+        delete childrenCache.value[key];
+      }
+    });
   };
 
   return {
-    trees,
-    getNodeByPath,
-    getParentNode,
-    fetchRoot,
+    getCurrentPath,
+    navigateTo,
+    navigateUp,
     fetchChildren,
-    toggle,
-    refreshNode,
-    removeNode,
-    clearTree,
+    getChildren,
+    isLoading,
+    locateNode,
+    goToNode,
+    refreshCurrentPath,
+    onNodeDeleted,
+    onNodeCreated,
+    clearConnection,
   };
 });

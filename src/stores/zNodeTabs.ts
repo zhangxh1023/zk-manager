@@ -44,6 +44,15 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     }
   }
 
+  // Replace the active tab with a new one (for left-click navigation)
+  const replaceActiveTab = (newTab: ZnodeTab) => {
+    // Remove all existing tabs and add new one
+    znodeTabs.value = [{
+      ...newTab,
+      isActive: true,
+    }];
+  }
+
   const setActiveTab = (path: string) => {
     for (const item of znodeTabs.value) {
       if (item.path === path) {
@@ -76,6 +85,7 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     znodeTabs,
     activeTab,
     addTab,
+    replaceActiveTab,
     delTab,
     setActiveTab,
     closeOtherTabs,

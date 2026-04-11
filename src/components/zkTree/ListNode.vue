@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import type { ZkTreeNode } from '../../stores/zkTree';
+import { ref } from 'vue';
+import type { ZkListNode } from '../../stores/zkTree';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
@@ -23,53 +23,51 @@ import {
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { showToast } from '../../utils/toast';
 
 const { t } = i18n.global;
 
 const props = defineProps<{
-  node: ZkTreeNode;
+  node: ZkListNode;
   connectionUuid: string;
-  depth: number;
 }>();
 
 const zkTreeStore = useZkTreeStore();
 const znodeTabsStore = useZnodeTabsStore();
 const logsStore = useLogsStore();
 
-// Create child dialog state
+// Create dialog state
 const showCreateDialog = ref(false);
 const newChildName = ref('');
 const newChildData = ref('');
 
-const arrow = computed(() => {
-  if (props.node.loading) return '...';
-  return props.node.expanded ? '▼' : '▶';
-});
+// Delete dialog state
+const showDeleteDialog = ref(false);
+const isDeleting = ref(false);
 
-const handleToggle = async () => {
-  const wasExpanded = props.node.expanded;
-  await zkTreeStore.toggle(props.connectionUuid, props.node);
-  // Log expand operation
-  if (!wasExpanded && props.node.expanded) {
-    await logsStore.addLog(props.connectionUuid, 'LIST', `Expanded node ${props.node.path}`);
+// Navigate into this node when clicking the name (replaces active tab)
+const handleNavigate = async () => {
+  try {
+    await zkTreeStore.navigateTo(props.connectionUuid, props.node.path);
+    // Also replace the active tab with this node's details
+    const details = await zkApi.getDetails(props.node.path);
+    znodeTabsStore.replaceActiveTab({
+      connectionUuid: props.connectionUuid,
+      path: props.node.path,
+      znodeData: details.data,
+      stat: details.stat,
+      acl: details.acl,
+      isActive: true,
+    });
+    await logsStore.addLog(props.connectionUuid, 'NAVIGATE', `Navigated to ${props.node.path}`);
+  } catch (err) {
+    console.error('handleNavigate error:', err);
+    showToast.error(`Navigation failed: ${err}`);
   }
 };
 
-const handleSelect = async () => {
-  const details = await zkApi.getDetails(props.node.path);
-  znodeTabsStore.addTab({
-    connectionUuid: props.connectionUuid,
-    path: props.node.path,
-    znodeData: details.data,
-    stat: details.stat,
-    acl: details.acl,
-    isActive: true,
-  });
-  await logsStore.addLog(props.connectionUuid, 'GET', `Viewed node ${props.node.path}`);
-};
-
-// Context menu actions
-const openInNewTab = async () => {
+// Open node in new tab (for right-click, doesn't replace existing tabs)
+const handleOpenInTab = async () => {
   const details = await zkApi.getDetails(props.node.path);
   znodeTabsStore.addTab({
     connectionUuid: props.connectionUuid,
@@ -82,6 +80,7 @@ const openInNewTab = async () => {
   await logsStore.addLog(props.connectionUuid, 'GET', `Viewed node ${props.node.path} in new tab`);
 };
 
+// Context menu actions
 const openCreateDialog = () => {
   newChildName.value = '';
   newChildData.value = '';
@@ -91,56 +90,57 @@ const openCreateDialog = () => {
 const createChildNode = async () => {
   if (!newChildName.value.trim()) return;
   const childPath = props.node.path === '/' ? `/${newChildName.value.trim()}` : `${props.node.path}/${newChildName.value.trim()}`;
+  const data = Array.from(new TextEncoder().encode(newChildData.value));
   try {
-    await zkApi.createNode(childPath, []);
+    await zkApi.createNode(childPath, data);
     await logsStore.addLog(props.connectionUuid, 'CREATE', `Created node ${childPath}`);
+    await zkTreeStore.onNodeCreated(props.connectionUuid, props.node.path);
     showCreateDialog.value = false;
-    alert(t('node.createSuccess', { path: childPath }));
-    zkTreeStore.refreshNode(props.connectionUuid, props.node.path);
+    showToast.success(t('node.createSuccess', { path: childPath }));
   } catch (err) {
     await logsStore.addLog(props.connectionUuid, 'CREATE', `Failed to create node ${childPath}: ${err}`);
-    alert(`${t('node.createFailed')}: ${err}`);
+    showToast.error(`${t('node.createFailed')}: ${err}`);
   }
 };
 
-const deleteThisNode = async () => {
-  if (!window.confirm(t('node.confirmDelete', { path: props.node.path }))) return;
+const openDeleteDialog = () => {
+  showDeleteDialog.value = true;
+};
+
+const confirmDelete = async () => {
+  isDeleting.value = true;
   try {
     await zkApi.deleteNode(props.node.path);
     await logsStore.addLog(props.connectionUuid, 'DELETE', `Deleted node ${props.node.path}`);
     znodeTabsStore.delTab(props.node.path);
-    zkTreeStore.removeNode(props.connectionUuid, props.node.path);
-  } catch (err) {
-    await logsStore.addLog(props.connectionUuid, 'DELETE', `Failed to delete node ${props.node.path}: ${err}`);
-    alert(`${t('node.deleteFailed')}: ${err}`);
+    await zkTreeStore.onNodeDeleted(props.connectionUuid, props.node.path);
+    showDeleteDialog.value = false;
+    showToast.success(t('node.deleteSuccess'));
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await logsStore.addLog(props.connectionUuid, 'DELETE', `Failed to delete node ${props.node.path}: ${errorMsg}`);
+    showToast.error(errorMsg);
+  } finally {
+    isDeleting.value = false;
   }
 };
 </script>
 
 <template>
-  <div class="tree-node">
+  <div class="list-node group">
     <ContextMenu>
       <ContextMenuTrigger>
         <div
-          class="flex items-center gap-1 px-1 py-0.5 hover:bg-accent cursor-pointer rounded"
-          :style="{ paddingLeft: depth * 16 + 'px' }"
+          class="flex items-center px-3 py-1.5 hover:bg-accent/70 cursor-pointer transition-colors mx-1"
+          @click="handleNavigate"
         >
-          <span
-            class="w-4 flex items-center justify-center text-xs"
-            @click.stop="handleToggle"
-          >
-            <span v-if="node.hasChildren || node.children.length">{{ arrow }}</span>
-          </span>
-          <span
-            class="truncate text-sm"
-            @click="handleSelect"
-          >
+          <span class="text-sm text-foreground/80 group-hover:text-foreground transition-colors">
             {{ node.name }}
           </span>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem @click="openInNewTab">
+        <ContextMenuItem @click="handleOpenInTab">
           {{ t('node.openInNewTab') }}
         </ContextMenuItem>
         <ContextMenuSeparator />
@@ -148,20 +148,11 @@ const deleteThisNode = async () => {
           {{ t('node.createChild') }}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem @click="deleteThisNode">
+        <ContextMenuItem @click="openDeleteDialog">
           {{ t('node.delete') }}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-    <div v-if="node.expanded">
-      <TreeNode
-        v-for="child in node.children"
-        :key="child.path"
-        :node="child"
-        :connection-uuid="connectionUuid"
-        :depth="depth + 1"
-      />
-    </div>
 
     <!-- Create Child Dialog -->
     <Dialog v-model:open="showCreateDialog">
@@ -190,6 +181,24 @@ const deleteThisNode = async () => {
         <DialogFooter>
           <Button variant="outline" @click="showCreateDialog = false">{{ t('connection.cancel') }}</Button>
           <Button @click="createChildNode">{{ t('connection.save') }}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Delete Confirmation Dialog -->
+    <Dialog v-model:open="showDeleteDialog">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{{ t('node.confirmDeleteTitle') }}</DialogTitle>
+        </DialogHeader>
+        <div class="py-4">
+          <p class="text-sm text-muted-foreground">
+            {{ t('node.confirmDeleteMsg', { path: props.node.path }) }}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showDeleteDialog = false">{{ t('connection.cancel') }}</Button>
+          <Button variant="destructive" @click="confirmDelete" :disabled="isDeleting">{{ t('node.delete') }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

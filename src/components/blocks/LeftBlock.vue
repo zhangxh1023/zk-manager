@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import AppMenus from '../appMenus/AppMenus.vue';
-import ZkTree from '../zkTree/ZkTree.vue';
+import ZkList from '../zkTree/ZkList.vue';
 import { useConnectionsStore } from '../../stores/connections';
 import { zkApi } from '../../api/zk';
 import { useLogsStore } from '../../stores/logs';
@@ -35,17 +35,17 @@ const showEditDialog = ref(false);
 const editingConn = ref<{ uuid: string; name: string; url: string; username: string; password: string } | null>(null);
 
 // Connect
-const connect = async (uuid: string, url: string) => {
-  await zkApi.connect(url);
-  connectedSet.value.add(uuid);
+const connect = async (conn: { uuid: string; url: string; username?: string; password?: string }) => {
+  await zkApi.connect(conn.url, conn.username, conn.password);
+  connectedSet.value.add(conn.uuid);
 };
 
-const toggleConnection = async (conn: { uuid: string; url: string; name?: string }) => {
+const toggleConnection = async (conn: { uuid: string; url: string; name?: string; username?: string; password?: string }) => {
   if (connectedSet.value.has(conn.uuid)) {
     connectedSet.value.delete(conn.uuid);
     await logsStore.addLog(conn.name || conn.uuid, 'DISCONNECT', `Disconnected from ${conn.url}`);
   } else {
-    await connect(conn.uuid, conn.url);
+    await connect(conn);
     await logsStore.addLog(conn.name || conn.uuid, 'CONNECT', `Connected to ${conn.url}`);
   }
 };
@@ -97,15 +97,15 @@ import { getDb } from '../../db/db';
       <div
         v-for="conn in connectionsStore.connections"
         :key="conn.uuid"
-        class="border-b"
       >
+        <!-- Connection Header -->
         <ContextMenu>
           <ContextMenuTrigger>
             <div
-              class="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-accent"
+              class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors"
               @click="toggleConnection(conn)"
             >
-              <span class="text-xs">{{ isConnected(conn.uuid) ? '▼' : '▶' }}</span>
+              <span class="text-xs text-muted-foreground">{{ isConnected(conn.uuid) ? '▼' : '▶' }}</span>
               <span class="text-sm font-medium truncate">{{ conn.name }}</span>
             </div>
           </ContextMenuTrigger>
@@ -122,8 +122,10 @@ import { getDb } from '../../db/db';
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
-        <div v-if="isConnected(conn.uuid)" class="border-l ml-2">
-          <ZkTree
+
+        <!-- Connected: show node list with path input -->
+        <div v-if="isConnected(conn.uuid)" class="border-l-2 border-primary/30 ml-3">
+          <ZkList
             :connection-uuid="conn.uuid"
             :connected="true"
           />
