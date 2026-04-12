@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, watch, ref } from 'vue';
+import { ArrowLeft, RefreshCw, Search } from 'lucide-vue-next';
 import { useZkTreeStore } from '../../stores/zkTree';
 import ListNode from './ListNode.vue';
 
@@ -17,14 +18,11 @@ const error = ref<string | null>(null);
 
 // Local input state
 const inputPath = ref('/');
-const isDirty = ref(false);
 
 // Sync input when currentPath changes externally
 watch(currentPath, (newPath) => {
-  if (!isDirty.value) {
-    inputPath.value = newPath;
-    error.value = null; // Clear error on successful navigation
-  }
+  inputPath.value = newPath;
+  error.value = null;
 }, { immediate: true });
 
 onMounted(async () => {
@@ -32,7 +30,6 @@ onMounted(async () => {
     error.value = null;
     await zkTreeStore.navigateTo(props.connectionUuid, '/');
     inputPath.value = '/';
-    isDirty.value = false;
   }
 });
 
@@ -41,11 +38,9 @@ watch(() => props.connected, async (connected) => {
     error.value = null;
     await zkTreeStore.navigateTo(props.connectionUuid, '/');
     inputPath.value = '/';
-    isDirty.value = false;
   } else {
     zkTreeStore.clearConnection(props.connectionUuid);
     inputPath.value = '/';
-    isDirty.value = false;
     error.value = null;
   }
 });
@@ -53,36 +48,24 @@ watch(() => props.connected, async (connected) => {
 const handleInput = (e: Event) => {
   const target = e.target as HTMLInputElement;
   inputPath.value = target.value;
-  isDirty.value = target.value !== currentPath.value;
   error.value = null;
 };
 
 const handleNavigate = async () => {
   if (!inputPath.value.trim()) return;
 
-  // If input equals current path and there's an error, just clear error (user clicked dismiss)
-  if (inputPath.value === currentPath.value && error.value) {
-    error.value = null;
-    isDirty.value = false;
-    return;
-  }
-
   // If same path, no navigation needed
   if (inputPath.value === currentPath.value) {
-    isDirty.value = false;
     return;
   }
 
   error.value = null;
   try {
     await zkTreeStore.navigateTo(props.connectionUuid, inputPath.value);
-    // If we reach here, navigation was successful
-    isDirty.value = false;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
     // Restore input to current path
     inputPath.value = currentPath.value;
-    isDirty.value = false;
   }
 };
 
@@ -96,7 +79,6 @@ const navigateUp = async () => {
   error.value = null;
   await zkTreeStore.navigateUp(props.connectionUuid);
   inputPath.value = zkTreeStore.getCurrentPath(props.connectionUuid);
-  isDirty.value = false;
 };
 
 const refresh = () => {
@@ -107,87 +89,83 @@ const refresh = () => {
 const clearError = () => {
   error.value = null;
   inputPath.value = currentPath.value;
-  isDirty.value = false;
 };
 </script>
 
 <template>
   <div class="zk-list">
     <!-- Single Row: Path Input + Controls -->
-    <div class="flex items-center gap-2 px-3 py-2 bg-muted/40 border-b border-border/50">
+    <div class="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b border-border/30">
       <!-- Back Button -->
       <button
-        class="w-8 h-8 flex items-center justify-center rounded-lg bg-background border border-border hover:bg-accent hover:border-accent transition-colors text-sm shrink-0"
-        @click="navigateUp"
+        class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border"
         title="Go to parent"
+        @click="navigateUp"
       >
-        ←
+        <ArrowLeft class="w-4 h-4" />
       </button>
 
       <!-- Path Input -->
       <div class="relative flex-1 min-w-0">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
         <input
           type="text"
           :value="inputPath"
+          class="w-full h-8 pl-8 pr-3 text-sm rounded-md border border-border bg-background transition-colors outline-none focus:border-primary"
+          :class="error ? 'border-destructive' : ''"
+          placeholder="/path/to/node"
           @input="handleInput"
           @keydown="handleKeydown"
           @blur="handleNavigate"
-          class="w-full h-8 px-3 pr-8 text-sm rounded-lg border bg-background transition-colors outline-none"
-          :class="isDirty
-            ? 'border-primary ring-1 ring-primary/30'
-            : error
-              ? 'border-destructive ring-1 ring-destructive/30'
-              : 'border-border hover:border-accent'"
-          placeholder="/path/to/node"
-        />
-        <!-- Dirty indicator dot -->
-        <span
-          v-if="isDirty"
-          class="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary"
-          title="Path modified"
-        />
+        >
       </div>
 
       <!-- Refresh Button -->
       <button
-        class="w-8 h-8 flex items-center justify-center rounded-lg bg-background border border-border hover:bg-accent hover:border-accent transition-colors text-sm shrink-0"
-        @click="refresh"
+        class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border"
         title="Refresh"
+        @click="refresh"
       >
-        ↻
+        <RefreshCw class="w-4 h-4" />
       </button>
     </div>
 
     <!-- Error State -->
-    <div v-if="error" class="px-3 py-2 bg-destructive/10 border-b border-destructive/20">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-destructive">{{ error }}</span>
-        <button
-          class="text-xs text-muted-foreground hover:text-foreground"
-          @click="clearError"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
-
-    <!-- Current Path Display (when dirty) -->
-    <div v-else-if="isDirty" class="px-3 py-1.5 bg-muted/20 border-b border-border/30 text-xs text-muted-foreground">
-      Current: <button class="text-primary hover:underline" @click="clearError">{{ currentPath }}</button>
+    <div
+      v-if="error"
+      class="px-2 py-1.5 bg-destructive/10 text-xs text-destructive flex items-center justify-between"
+    >
+      <span class="truncate">{{ error }}</span>
+      <button
+        class="shrink-0 hover:text-foreground ml-2"
+        @click="clearError"
+      >
+        ✕
+      </button>
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="flex items-center justify-center py-8 text-muted-foreground text-xs">
-      <span class="animate-pulse">Loading...</span>
+    <div
+      v-else-if="loading"
+      class="flex items-center justify-center py-6 text-muted-foreground text-xs"
+    >
+      <RefreshCw class="w-3 h-3 animate-spin mr-2" />
+      <span>Loading...</span>
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="children.length === 0" class="flex items-center justify-center py-8 text-muted-foreground text-xs">
+    <div
+      v-else-if="children.length === 0"
+      class="flex items-center justify-center py-6 text-muted-foreground text-xs"
+    >
       No children
     </div>
 
     <!-- Node List -->
-    <div v-else class="py-1">
+    <div
+      v-else
+      class="py-1"
+    >
       <ListNode
         v-for="node in children"
         :key="node.path"

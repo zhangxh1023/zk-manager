@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { zkApi } from '../api/zk';
+import { useLogsStore } from './logs';
+import { useConnectionsStore } from './connections';
 
 export interface ZkListNode {
   name: string;
@@ -56,6 +58,11 @@ export const useZkTreeStore = defineStore('zkTree', () => {
       return [];
     }
 
+    const logsStore = useLogsStore();
+    const connectionsStore = useConnectionsStore();
+    const conn = connectionsStore.connections.find(c => c.uuid === connectionUuid);
+    const connName = conn?.name || connectionUuid;
+
     loadingStates.value[key] = true;
     try {
       const childNames = await zkApi.listChildren(path);
@@ -67,9 +74,11 @@ export const useZkTreeStore = defineStore('zkTree', () => {
           hasChildren: true,
         };
       });
+      await logsStore.addLog(connName, 'LIST_CHILDREN', `Listed children of ${path}, count: ${childNames.length}`, true);
       return childrenCache.value[key];
     } catch (err) {
-      console.error(`Failed to fetch children for ${path}:`, err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await logsStore.addLog(connName, 'LIST_CHILDREN', `Failed to list children of ${path}: ${errorMsg}`, false);
       throw err; // Re-throw to propagate error
     } finally {
       loadingStates.value[key] = false;

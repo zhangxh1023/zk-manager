@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { Textarea } from '../../ui/textarea';
+
 defineProps<{
   modelValue: string;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (event: 'update:modelValue', value: string): void;
 }>();
 </script>
@@ -12,7 +13,7 @@ defineEmits<{
 <template>
   <Textarea
     :model-value="modelValue"
-    class="resize-none h-full"
-    @update:model-value="$emit('update:modelValue', String($event))"
+    class="h-full resize-none font-mono text-xs"
+    @update:model-value="emit('update:modelValue', String($event))"
   />
 </template>

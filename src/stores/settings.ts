@@ -6,14 +6,14 @@ import { i18n } from '../i18n';
 export interface AppSettings {
   language: 'en' | 'zh';
   theme: 'light' | 'dark' | 'system';
-  fontSize: number;
+  scale: number;
 }
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings>({
     language: 'en',
     theme: 'system',
-    fontSize: 14,
+    scale: 1.0,
   });
 
   // Apply theme to document
@@ -27,10 +27,15 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   };
 
-  // Apply font size to document
-  const applyFontSize = () => {
+  // Apply scale to document
+  const applyScale = () => {
     const root = document.documentElement;
-    root.style.setProperty('--font-size-base', `${settings.value.fontSize}px`);
+    root.style.setProperty('--app-scale', String(settings.value.scale));
+    document.body.style.transform = `scale(${settings.value.scale})`;
+    document.body.style.transformOrigin = 'top left';
+    // Adjust body width to prevent clipping
+    const containerWidth = 100 / settings.value.scale;
+    document.body.style.width = `${containerWidth}%`;
   };
 
   const load = async () => {
@@ -40,12 +45,16 @@ export const useSettingsStore = defineStore('settings', () => {
       for (const row of result) {
         if (row.key === 'language') settings.value.language = row.value as 'en' | 'zh';
         if (row.key === 'theme') settings.value.theme = row.value as 'light' | 'dark' | 'system';
-        if (row.key === 'fontSize') settings.value.fontSize = parseInt(row.value, 10);
+        if (row.key === 'scale') {
+          const parsed = parseFloat(row.value);
+          // Ensure scale is valid (0.8 to 2.0), default to 1.0 if invalid
+          settings.value.scale = (parsed >= 0.8 && parsed <= 2.0) ? parsed : 1.0;
+        }
       }
       applyTheme();
-      applyFontSize();
+      applyScale();
       i18n.global.locale.value = settings.value.language;
-    } catch (e) {
+    } catch {
       // settings table might not exist yet
     }
   };
@@ -54,7 +63,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const db = await getDb();
     await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', ['language', settings.value.language]);
     await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', ['theme', settings.value.theme]);
-    await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', ['fontSize', String(settings.value.fontSize)]);
+    await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', ['scale', String(settings.value.scale)]);
   };
 
   // Watch for changes and apply immediately
@@ -63,7 +72,7 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   watch(() => settings.value.theme, applyTheme);
-  watch(() => settings.value.fontSize, applyFontSize);
+  watch(() => settings.value.scale, applyScale);
 
-  return { settings, load, save, applyTheme, applyFontSize };
+  return { settings, load, save, applyTheme, applyScale };
 });

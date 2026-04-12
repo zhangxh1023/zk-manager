@@ -4,23 +4,30 @@ import { xml } from '@codemirror/lang-xml';
 
 defineProps<{
   modelValue: string;
+  readonly?: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (event: 'update:modelValue', value: string): void;
 }>();
 
-const extensions = [xml()]
+const extensions = [
+  xml(),
+];
+
+const handleChange = (value: string) => {
+  emit('update:modelValue', value);
+};
 </script>
 
 <template>
-  <Codemirror
-    :model-value="modelValue"
-    :style="{ height: '400px' }"
-    :autofocus="true"
-    :indent-with-tab="true"
-    :tab-size="2"
-    :extensions="extensions"
-    @update:model-value="$emit('update:modelValue', $event)"
-  />
+  <div class="h-full overflow-hidden">
+    <Codemirror
+      :model-value="modelValue"
+      :extensions="extensions"
+      :readonly="readonly"
+      :style="{ height: '100%' }"
+      @update:model-value="handleChange"
+    />
+  </div>
 </template>

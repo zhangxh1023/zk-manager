@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { ChevronRight, ChevronDown } from 'lucide-vue-next';
 import AppMenus from '../appMenus/AppMenus.vue';
 import ZkList from '../zkTree/ZkList.vue';
 import { useConnectionsStore } from '../../stores/connections';
@@ -35,9 +36,16 @@ const showEditDialog = ref(false);
 const editingConn = ref<{ uuid: string; name: string; url: string; username: string; password: string } | null>(null);
 
 // Connect
-const connect = async (conn: { uuid: string; url: string; username?: string; password?: string }) => {
-  await zkApi.connect(conn.url, conn.username, conn.password);
-  connectedSet.value.add(conn.uuid);
+const connect = async (conn: { uuid: string; url: string; name?: string; username?: string; password?: string }) => {
+  try {
+    await zkApi.connect(conn.url, conn.username, conn.password);
+    connectedSet.value.add(conn.uuid);
+    await logsStore.addLog(conn.name || conn.uuid, 'CONNECT', `Connected to ${conn.url}`, true);
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await logsStore.addLog(conn.name || conn.uuid, 'CONNECT', `Failed to connect to ${conn.url}: ${errorMsg}`, false);
+    throw err; // Re-throw so toggleConnection knows it failed
+  }
 };
 
 const toggleConnection = async (conn: { uuid: string; url: string; name?: string; username?: string; password?: string }) => {
@@ -45,8 +53,11 @@ const toggleConnection = async (conn: { uuid: string; url: string; name?: string
     connectedSet.value.delete(conn.uuid);
     await logsStore.addLog(conn.name || conn.uuid, 'DISCONNECT', `Disconnected from ${conn.url}`);
   } else {
-    await connect(conn);
-    await logsStore.addLog(conn.name || conn.uuid, 'CONNECT', `Connected to ${conn.url}`);
+    try {
+      await connect(conn);
+    } catch {
+      // Connection failed, already logged in connect()
+    }
   }
 };
 
@@ -102,18 +113,24 @@ import { getDb } from '../../db/db';
         <ContextMenu>
           <ContextMenuTrigger>
             <div
-              class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors"
+              class="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-accent/50 transition-colors text-xs"
               @click="toggleConnection(conn)"
             >
-              <span class="text-xs text-muted-foreground">{{ isConnected(conn.uuid) ? '▼' : '▶' }}</span>
-              <span class="text-sm font-medium truncate">{{ conn.name }}</span>
+              <component
+                :is="isConnected(conn.uuid) ? ChevronDown : ChevronRight"
+                class="w-3 h-3 text-muted-foreground shrink-0"
+              />
+              <span class="truncate text-muted-foreground">{{ conn.name }}</span>
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
             <ContextMenuItem @click="openEditDialog(conn, $event)">
               {{ t('connection.edit') }}
             </ContextMenuItem>
-            <ContextMenuItem v-if="isConnected(conn.uuid)" @click="disconnect(conn, $event)">
+            <ContextMenuItem
+              v-if="isConnected(conn.uuid)"
+              @click="disconnect(conn, $event)"
+            >
               {{ t('connection.disconnect') }}
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -124,7 +141,10 @@ import { getDb } from '../../db/db';
         </ContextMenu>
 
         <!-- Connected: show node list with path input -->
-        <div v-if="isConnected(conn.uuid)" class="border-l-2 border-primary/30 ml-3">
+        <div
+          v-if="isConnected(conn.uuid)"
+          class="border-l-2 border-primary/30 ml-3"
+        >
           <ZkList
             :connection-uuid="conn.uuid"
             :connected="true"
@@ -139,27 +159,50 @@ import { getDb } from '../../db/db';
         <DialogHeader>
           <DialogTitle>{{ t('connection.edit') }}</DialogTitle>
         </DialogHeader>
-        <div v-if="editingConn" class="space-y-4 py-4">
+        <div
+          v-if="editingConn"
+          class="space-y-4 py-4"
+        >
           <div>
             <Label for="editName">{{ t('connection.name') }}</Label>
-            <Input id="editName" v-model="editingConn.name" />
+            <Input
+              id="editName"
+              v-model="editingConn.name"
+            />
           </div>
           <div>
             <Label for="editUrl">{{ t('connection.url') }}</Label>
-            <Input id="editUrl" v-model="editingConn.url" />
+            <Input
+              id="editUrl"
+              v-model="editingConn.url"
+            />
           </div>
           <div>
             <Label for="editUsername">{{ t('connection.username') }}</Label>
-            <Input id="editUsername" v-model="editingConn.username" />
+            <Input
+              id="editUsername"
+              v-model="editingConn.username"
+            />
           </div>
           <div>
             <Label for="editPassword">{{ t('connection.password') }}</Label>
-            <Input id="editPassword" v-model="editingConn.password" type="password" />
+            <Input
+              id="editPassword"
+              v-model="editingConn.password"
+              type="password"
+            />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showEditDialog = false">{{ t('connection.cancel') }}</Button>
-          <Button @click="saveEdit">{{ t('connection.save') }}</Button>
+          <Button
+            variant="outline"
+            @click="showEditDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button @click="saveEdit">
+            {{ t('connection.save') }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

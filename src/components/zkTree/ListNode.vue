@@ -45,39 +45,54 @@ const newChildData = ref('');
 const showDeleteDialog = ref(false);
 const isDeleting = ref(false);
 
-// Navigate into this node when clicking the name (replaces active tab)
+// Navigate into this node when clicking the name (activates existing tab or creates temporary tab)
 const handleNavigate = async () => {
   try {
     await zkTreeStore.navigateTo(props.connectionUuid, props.node.path);
-    // Also replace the active tab with this node's details
     const details = await zkApi.getDetails(props.node.path);
-    znodeTabsStore.replaceActiveTab({
+    const activatedExisting = znodeTabsStore.replaceOrCreateTemporaryTab({
       connectionUuid: props.connectionUuid,
       path: props.node.path,
       znodeData: details.data,
       stat: details.stat,
       acl: details.acl,
       isActive: true,
+      isTemporary: true,
     });
-    await logsStore.addLog(props.connectionUuid, 'NAVIGATE', `Navigated to ${props.node.path}`);
+    if (activatedExisting) {
+      await logsStore.addLog(props.connectionUuid, 'NAVIGATE', `Activated existing tab for ${props.node.path}`);
+    } else {
+      await logsStore.addLog(props.connectionUuid, 'NAVIGATE', `Navigated to ${props.node.path}`);
+    }
   } catch (err) {
     console.error('handleNavigate error:', err);
     showToast.error(`Navigation failed: ${err}`);
   }
 };
 
-// Open node in new tab (for right-click, doesn't replace existing tabs)
+// Open node in new tab (for right-click, creates permanent tab)
 const handleOpenInTab = async () => {
   const details = await zkApi.getDetails(props.node.path);
-  znodeTabsStore.addTab({
+  const tabExisted = znodeTabsStore.addTab({
     connectionUuid: props.connectionUuid,
     path: props.node.path,
     znodeData: details.data,
     stat: details.stat,
     acl: details.acl,
     isActive: true,
+    isTemporary: false, // Permanent tab
   });
-  await logsStore.addLog(props.connectionUuid, 'GET', `Viewed node ${props.node.path} in new tab`);
+  if (tabExisted) {
+    // Tab already existed, refresh it to get latest data
+    znodeTabsStore.updateTab(props.node.path, {
+      znodeData: details.data,
+      stat: details.stat,
+      acl: details.acl,
+    });
+    await logsStore.addLog(props.connectionUuid, 'REFRESH', `Refreshed existing tab for ${props.node.path}`);
+  } else {
+    await logsStore.addLog(props.connectionUuid, 'GET', `Viewed node ${props.node.path} in new tab`);
+  }
 };
 
 // Context menu actions
@@ -98,7 +113,7 @@ const createChildNode = async () => {
     showCreateDialog.value = false;
     showToast.success(t('node.createSuccess', { path: childPath }));
   } catch (err) {
-    await logsStore.addLog(props.connectionUuid, 'CREATE', `Failed to create node ${childPath}: ${err}`);
+    await logsStore.addLog(props.connectionUuid, 'CREATE', `Failed to create node ${childPath}: ${err}`, false);
     showToast.error(`${t('node.createFailed')}: ${err}`);
   }
 };
@@ -118,7 +133,7 @@ const confirmDelete = async () => {
     showToast.success(t('node.deleteSuccess'));
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    await logsStore.addLog(props.connectionUuid, 'DELETE', `Failed to delete node ${props.node.path}: ${errorMsg}`);
+    await logsStore.addLog(props.connectionUuid, 'DELETE', `Failed to delete node ${props.node.path}: ${errorMsg}`, false);
     showToast.error(errorMsg);
   } finally {
     isDeleting.value = false;
@@ -179,8 +194,15 @@ const confirmDelete = async () => {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showCreateDialog = false">{{ t('connection.cancel') }}</Button>
-          <Button @click="createChildNode">{{ t('connection.save') }}</Button>
+          <Button
+            variant="outline"
+            @click="showCreateDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button @click="createChildNode">
+            {{ t('connection.save') }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -197,8 +219,19 @@ const confirmDelete = async () => {
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showDeleteDialog = false">{{ t('connection.cancel') }}</Button>
-          <Button variant="destructive" @click="confirmDelete" :disabled="isDeleting">{{ t('node.delete') }}</Button>
+          <Button
+            variant="outline"
+            @click="showDeleteDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button
+            variant="destructive"
+            :disabled="isDeleting"
+            @click="confirmDelete"
+          >
+            {{ t('node.delete') }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

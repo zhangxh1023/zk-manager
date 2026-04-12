@@ -8,6 +8,7 @@ export interface LogEntry {
   connectionName: string;
   command: string;
   details: string;
+  success: boolean;
 }
 
 const PAGE_SIZE = 20;
@@ -20,31 +21,31 @@ export const useLogsStore = defineStore('logs', () => {
   const loadLogs = async (page: number = 1) => {
     const db = await getDb();
     try {
-      // 获取总数
+      // Get total count
       const countResult = await db.select<{ cnt: number }[]>('SELECT COUNT(*) as cnt FROM logs');
       totalCount.value = countResult[0]?.cnt || 0;
 
-      // 获取分页数据
+      // Get paginated data
       const offset = (page - 1) * PAGE_SIZE;
       const result = await db.select<LogEntry[]>(
-        'SELECT id, timestamp, connectionName, command, details FROM logs ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
+        'SELECT id, timestamp, connectionName, command, details, success FROM logs ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
         [PAGE_SIZE, offset],
       );
       logs.value = result;
       currentPage.value = page;
-    } catch (e) {
+    } catch {
       logs.value = [];
     }
   };
 
-  const addLog = async (connectionName: string, command: string, details: string) => {
+  const addLog = async (connectionName: string, command: string, details: string, success = true) => {
     const db = await getDb();
     try {
       await db.execute(
-        'INSERT INTO logs (timestamp, connectionName, command, details) VALUES ($1, $2, $3, $4)',
-        [Date.now(), connectionName, command, details],
+        'INSERT INTO logs (timestamp, connectionName, command, details, success) VALUES ($1, $2, $3, $4, $5)',
+        [Date.now(), connectionName, command, details, success ? 1 : 0],
       );
-      // 如果当前是第一页，刷新一下
+      // Refresh if on first page
       if (currentPage.value === 1) {
         await loadLogs(1);
       }
@@ -60,8 +61,8 @@ export const useLogsStore = defineStore('logs', () => {
       logs.value = [];
       totalCount.value = 0;
       currentPage.value = 1;
-    } catch (e) {
-      console.error('Failed to clear logs:', e);
+    } catch {
+      // Ignore clear errors
     }
   };
 
@@ -69,5 +70,15 @@ export const useLogsStore = defineStore('logs', () => {
   const hasNextPage = () => currentPage.value < totalPages();
   const hasPrevPage = () => currentPage.value > 1;
 
-  return { logs, currentPage, totalCount, loadLogs, addLog, clearLogs, totalPages, hasNextPage, hasPrevPage };
+  return {
+    logs,
+    currentPage,
+    totalCount,
+    loadLogs,
+    addLog,
+    clearLogs,
+    totalPages,
+    hasNextPage,
+    hasPrevPage,
+  };
 });

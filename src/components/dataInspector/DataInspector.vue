@@ -28,6 +28,14 @@ import {
 import type { ZnodeTab } from '../../stores/znodeTabs';
 import type { ZkAclEntry } from '../../types/znodeDetails';
 import { showToast } from '../../utils/toast';
+import { formatBytes, parseBytes, type SerializationFormat } from '../../utils/serializer';
+
+// Viewer components
+import TextViewer from './components/TextViewer.vue';
+import JSONViewer from './components/JSONViewer.vue';
+import XMLViewer from './components/XMLViewer.vue';
+import HexViewer from './components/HexViewer.vue';
+import BinaryViewer from './components/BinaryViewer.vue';
 
 const { t } = useI18n();
 
@@ -39,7 +47,8 @@ const znodeTabsStore = useZnodeTabsStore();
 const logsStore = useLogsStore();
 const zkTreeStore = useZkTreeStore();
 
-const parser = ref('text');
+// Format selector
+const dataFormat = ref<SerializationFormat>('text');
 const editValue = ref('');
 const isSubmitting = ref(false);
 const errorMessage = ref('');
@@ -56,25 +65,44 @@ const showAclDialog = ref(false);
 // Delete dialog
 const showDeleteDialog = ref(false);
 
+const FORMAT_OPTIONS: { value: SerializationFormat; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'json', label: 'JSON' },
+  { value: 'xml', label: 'XML' },
+  { value: 'hex', label: 'Hex' },
+  { value: 'binary', label: 'Binary' },
+];
+
 const formatTimestamp = (value: number) => {
   if (!value) return '-';
   return new Date(value).toLocaleString();
 };
 
-const decodeText = (data: number[]) => {
-  const decoder = new TextDecoder('utf-8');
-  return decoder.decode(new Uint8Array(data));
-};
-
-const encodeText = (value: string) => Array.from(new TextEncoder().encode(value));
-
+// Update editValue when format or data changes
 watch(
-  () => [props.tab.path, props.tab.znodeData, parser.value],
+  () => [props.tab.znodeData, dataFormat.value],
   () => {
-    editValue.value = decodeText(props.tab.znodeData);
-    errorMessage.value = '';
+    const result = formatBytes(props.tab.znodeData, dataFormat.value);
+    if (result.success && result.data !== undefined) {
+      editValue.value = result.data;
+      errorMessage.value = '';
+    } else {
+      errorMessage.value = result.error || 'Failed to format data';
+    }
   },
   { immediate: true },
+);
+
+// Also update when tab changes (different node selected)
+watch(
+  () => props.tab.path,
+  () => {
+    const result = formatBytes(props.tab.znodeData, dataFormat.value);
+    if (result.success && result.data !== undefined) {
+      editValue.value = result.data;
+      errorMessage.value = '';
+    }
+  },
 );
 
 const statRows = computed(() => {
@@ -99,9 +127,11 @@ const refresh = async () => {
   errorMessage.value = '';
   try {
     const details = await zkApi.getDetails(props.tab.path);
-    props.tab.znodeData = details.data;
-    props.tab.stat = details.stat;
-    props.tab.acl = details.acl;
+    znodeTabsStore.updateTab(props.tab.path, {
+      znodeData: details.data,
+      stat: details.stat,
+      acl: details.acl,
+    });
     await logsStore.addLog('current', 'REFRESH', `Refreshed node ${props.tab.path}`);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -114,11 +144,20 @@ const save = async () => {
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
-    const data = encodeText(editValue.value);
-    const details = await zkApi.setData(props.tab.path, data);
-    props.tab.znodeData = details.data;
-    props.tab.stat = details.stat;
-    props.tab.acl = details.acl;
+    // Convert edit value back to bytes using current format
+    const result = parseBytes(editValue.value, dataFormat.value);
+    if (!result.success || !result.bytes) {
+      errorMessage.value = result.error || 'Failed to parse data';
+      isSubmitting.value = false;
+      return;
+    }
+
+    const details = await zkApi.setData(props.tab.path, result.bytes);
+    znodeTabsStore.updateTab(props.tab.path, {
+      znodeData: details.data,
+      stat: details.stat,
+      acl: details.acl,
+    });
     await logsStore.addLog('current', 'SET_DATA', `Updated data of ${props.tab.path}`);
     showToast.success(t('node.saveSuccess'));
   } catch (error: unknown) {
@@ -135,7 +174,6 @@ const removeNode = async () => {
   try {
     await zkApi.deleteNode(props.tab.path);
     await logsStore.addLog('current', 'DELETE', `Deleted node ${props.tab.path}`);
-    // Invalidate cache and refresh if needed
     await zkTreeStore.onNodeDeleted(props.tab.connectionUuid, props.tab.path);
     znodeTabsStore.delTab(props.tab.path);
     showDeleteDialog.value = false;
@@ -143,7 +181,6 @@ const removeNode = async () => {
   } catch (error: unknown) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     showToast.error(errorMsg);
-    // Don't set errorMessage since toast is already showing the error
   } finally {
     isSubmitting.value = false;
   }
@@ -171,16 +208,16 @@ const createChildNode = async () => {
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
-    const data = encodeText(newNodeData.value);
+    const encoder = new TextEncoder();
+    const data = Array.from(encoder.encode(newNodeData.value));
     await zkApi.createNode(childPath, data);
     await logsStore.addLog('current', 'CREATE', `Created node ${childPath}`);
-    // Invalidate cache and refresh if needed
     await zkTreeStore.onNodeCreated(props.tab.connectionUuid, props.tab.path);
     showCreateDialog.value = false;
     showToast.success(t('node.createSuccess', { path: childPath }));
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    await logsStore.addLog('current', 'CREATE', `Failed to create node ${childPath}: ${errMsg}`);
+    await logsStore.addLog('current', 'CREATE', `Failed to create node ${childPath}: ${errMsg}`, false);
     showToast.error(errMsg);
   } finally {
     isSubmitting.value = false;
@@ -204,11 +241,11 @@ const saveAcl = async () => {
   errorMessage.value = '';
   try {
     const newAclList = [...props.tab.acl.filter(a =>
-      !(a.scheme === editingAcl.value!.scheme && a.id === editingAcl.value!.id)
+      !(a.scheme === editingAcl.value!.scheme && a.id === editingAcl.value!.id),
     ), editingAcl.value];
     await zkApi.setAcl(props.tab.path, newAclList);
     const details = await zkApi.getDetails(props.tab.path);
-    props.tab.acl = details.acl;
+    znodeTabsStore.updateTab(props.tab.path, { acl: details.acl });
     await logsStore.addLog('current', 'SET_ACL', `Updated ACL of ${props.tab.path}`);
     showAclDialog.value = false;
   } catch (error) {
@@ -224,11 +261,11 @@ const deleteAcl = async (acl: ZkAclEntry) => {
   errorMessage.value = '';
   try {
     const newAclList = props.tab.acl.filter(a =>
-      !(a.scheme === acl.scheme && a.id === acl.id)
+      !(a.scheme === acl.scheme && a.id === acl.id),
     );
     await zkApi.setAcl(props.tab.path, newAclList);
     const details = await zkApi.getDetails(props.tab.path);
-    props.tab.acl = details.acl;
+    znodeTabsStore.updateTab(props.tab.path, { acl: details.acl });
     await logsStore.addLog('current', 'DELETE_ACL', `Deleted ACL from ${props.tab.path}`);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -289,39 +326,90 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
       class="flex-1 bg-background rounded p-2 overflow-hidden flex flex-col"
     >
       <TabsList class="w-full">
-        <TabsTrigger value="Data">{{ t('tabs.data') }}</TabsTrigger>
-        <TabsTrigger value="ACL">{{ t('tabs.acl') }}</TabsTrigger>
-        <TabsTrigger value="Meta">{{ t('tabs.meta') }}</TabsTrigger>
+        <TabsTrigger value="Data">
+          {{ t('tabs.data') }}
+        </TabsTrigger>
+        <TabsTrigger value="ACL">
+          {{ t('tabs.acl') }}
+        </TabsTrigger>
+        <TabsTrigger value="Meta">
+          {{ t('tabs.meta') }}
+        </TabsTrigger>
       </TabsList>
 
       <!-- Data Tab -->
-      <TabsContent value="Data" class="flex flex-col flex-1 overflow-hidden">
-        <div class="flex items-center gap-2 p-2">
-          <Button size="sm" :disabled="isSubmitting" @click="save">{{ t('tabs.save') }}</Button>
-          <Select v-model="parser">
+      <TabsContent
+        value="Data"
+        class="flex flex-col flex-1 min-h-0"
+      >
+        <div class="flex items-center gap-2 p-2 shrink-0">
+          <Button
+            size="sm"
+            :disabled="isSubmitting"
+            @click="save"
+          >
+            {{ t('tabs.save') }}
+          </Button>
+          <Select v-model="dataFormat">
             <SelectTrigger class="w-32">
-              <SelectValue placeholder="Parser" />
+              <SelectValue placeholder="Format" />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value="text">text</SelectItem>
+                <SelectItem
+                  v-for="opt in FORMAT_OPTIONS"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
         </div>
-        <div class="flex-1 min-h-0 p-2">
-          <Textarea
+        <div class="flex-1 min-h-0 p-2 overflow-auto">
+          <TextViewer
+            v-if="dataFormat === 'text'"
             v-model="editValue"
-            class="h-full font-mono text-xs"
+          />
+          <JSONViewer
+            v-else-if="dataFormat === 'json'"
+            v-model="editValue"
+          />
+          <XMLViewer
+            v-else-if="dataFormat === 'xml'"
+            v-model="editValue"
+          />
+          <HexViewer
+            v-else-if="dataFormat === 'hex'"
+            v-model="editValue"
+          />
+          <BinaryViewer
+            v-else-if="dataFormat === 'binary'"
+            v-model="editValue"
           />
         </div>
-        <p v-if="errorMessage" class="px-2 text-sm text-red-500">{{ errorMessage }}</p>
+        <p
+          v-if="errorMessage"
+          class="px-2 text-sm text-red-500 shrink-0"
+        >
+          {{ errorMessage }}
+        </p>
       </TabsContent>
 
       <!-- ACL Tab -->
-      <TabsContent value="ACL" class="flex-1 overflow-auto">
+      <TabsContent
+        value="ACL"
+        class="flex-1 overflow-auto"
+      >
         <div class="p-2">
-          <Button size="sm" class="mb-2" @click="addNewAcl">{{ t('acl.add') }}</Button>
+          <Button
+            size="sm"
+            class="mb-2"
+            @click="addNewAcl"
+          >
+            {{ t('acl.add') }}
+          </Button>
           <div class="space-y-2">
             <div
               v-for="(acl, index) in tab.acl"
@@ -334,17 +422,37 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
                 <div><span class="font-medium">{{ t('acl.permission') }}:</span> {{ acl.permission }}</div>
               </div>
               <div class="flex gap-2">
-                <Button variant="outline" size="sm" @click="openEditAcl(acl)">{{ t('acl.edit') }}</Button>
-                <Button variant="destructive" size="sm" @click="deleteAcl(acl)">{{ t('acl.delete') }}</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  @click="openEditAcl(acl)"
+                >
+                  {{ t('acl.edit') }}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  @click="deleteAcl(acl)"
+                >
+                  {{ t('acl.delete') }}
+                </Button>
               </div>
             </div>
-            <p v-if="!tab.acl.length" class="text-sm text-muted-foreground">no acl data</p>
+            <p
+              v-if="!tab.acl.length"
+              class="text-sm text-muted-foreground"
+            >
+              no acl data
+            </p>
           </div>
         </div>
       </TabsContent>
 
       <!-- Meta Tab -->
-      <TabsContent value="Meta">
+      <TabsContent
+        value="Meta"
+        class="flex-1 overflow-auto"
+      >
         <div class="space-y-2 p-2 text-sm">
           <div
             v-for="[label, value] in statRows"
@@ -382,11 +490,26 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
               class="font-mono text-xs"
             />
           </div>
-          <p v-if="errorMessage" class="text-sm text-red-500">{{ errorMessage }}</p>
+          <p
+            v-if="errorMessage"
+            class="text-sm text-red-500"
+          >
+            {{ errorMessage }}
+          </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showCreateDialog = false">{{ t('connection.cancel') }}</Button>
-          <Button @click="createChildNode" :disabled="isSubmitting">{{ t('connection.save') }}</Button>
+          <Button
+            variant="outline"
+            @click="showCreateDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button
+            :disabled="isSubmitting"
+            @click="createChildNode"
+          >
+            {{ t('connection.save') }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -397,7 +520,10 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
         <DialogHeader>
           <DialogTitle>{{ t('acl.edit') }} ACL</DialogTitle>
         </DialogHeader>
-        <div v-if="editingAcl" class="space-y-3 py-4">
+        <div
+          v-if="editingAcl"
+          class="space-y-3 py-4"
+        >
           <div>
             <Label>{{ t('acl.scheme') }}</Label>
             <Select v-model="editingAcl.scheme">
@@ -406,7 +532,13 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem v-for="s in SCHEME_OPTIONS" :key="s" :value="s">{{ s }}</SelectItem>
+                  <SelectItem
+                    v-for="s in SCHEME_OPTIONS"
+                    :key="s"
+                    :value="s"
+                  >
+                    {{ s }}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -423,17 +555,38 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem v-for="p in PERMISSION_OPTIONS" :key="p" :value="p">{{ p }}</SelectItem>
+                  <SelectItem
+                    v-for="p in PERMISSION_OPTIONS"
+                    :key="p"
+                    :value="p"
+                  >
+                    {{ p }}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showAclDialog = false">{{ t('connection.cancel') }}</Button>
-          <Button @click="saveAcl" :disabled="isSubmitting">{{ t('connection.save') }}</Button>
+          <Button
+            variant="outline"
+            @click="showAclDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button
+            :disabled="isSubmitting"
+            @click="saveAcl"
+          >
+            {{ t('connection.save') }}
+          </Button>
         </DialogFooter>
-        <p v-if="errorMessage" class="text-sm text-red-500">{{ errorMessage }}</p>
+        <p
+          v-if="errorMessage"
+          class="text-sm text-red-500"
+        >
+          {{ errorMessage }}
+        </p>
       </DialogContent>
     </Dialog>
 
@@ -449,8 +602,19 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showDeleteDialog = false">{{ t('connection.cancel') }}</Button>
-          <Button variant="destructive" @click="removeNode" :disabled="isSubmitting">{{ t('node.delete') }}</Button>
+          <Button
+            variant="outline"
+            @click="showDeleteDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button
+            variant="destructive"
+            :disabled="isSubmitting"
+            @click="removeNode"
+          >
+            {{ t('node.delete') }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
