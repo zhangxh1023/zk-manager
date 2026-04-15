@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use zookeeper_client::{Client, Acl, Permission, AuthId, CreateMode, Acls};
 use serde::{Deserialize, Serialize};
 mod migrations;
+mod ssh_tunnel;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,15 +65,73 @@ impl From<zookeeper_client::Acl> for ZkAclEntry {
 
 struct ZkClient {
   client: Mutex<Option<Arc<Client>>>,
+  ssh_tunnel: Mutex<Option<ssh_tunnel::SshTunnel>>,
 }
 
 #[tauri::command]
-async fn connect_zk(state: tauri::State<'_, ZkClient>, server: String, username: Option<String>, password: Option<String>) -> Result<String, String> {
+async fn connect_zk(
+  state: tauri::State<'_, ZkClient>,
+  server: String,
+  username: Option<String>,
+  password: Option<String>,
+  use_ssh: bool,
+  ssh_host: Option<String>,
+  ssh_port: Option<u16>,
+  ssh_username: Option<String>,
+  ssh_auth_method: Option<String>,
+  ssh_password: Option<String>,
+  ssh_key_path: Option<String>,
+) -> Result<String, String> {
   println!("尝试连接 ZK: {}", server);
-  let client = zookeeper_client::Client::connect(&server).await.map_err(|e| {
+
+  // 解析 ZooKeeper 服务器地址
+  let (zk_server_host, zk_server_port) = parse_server(&server)?;
+
+  // 如果使用 SSH 隧道，先创建隧道
+  let actual_server = if use_ssh {
+    let ssh_host = ssh_host.ok_or("SSH host is required when SSH tunnel is enabled")?;
+    let ssh_port = ssh_port.unwrap_or(22);
+    let ssh_username = ssh_username.ok_or("SSH username is required when SSH tunnel is enabled")?;
+
+    let auth_method = if ssh_auth_method.as_deref() == Some("key") {
+      ssh_tunnel::TunnelAuthMethod::Key {
+        key_path: ssh_key_path.ok_or("SSH key path is required for key authentication")?,
+      }
+    } else {
+      ssh_tunnel::TunnelAuthMethod::Password {
+        password: ssh_password.ok_or("SSH password is required for password authentication")?,
+      }
+    };
+
+    let tunnel_config = ssh_tunnel::TunnelConfig {
+      ssh_host,
+      ssh_port,
+      ssh_username,
+      ssh_auth_method: auth_method,
+      target_host: zk_server_host,
+      target_port: zk_server_port,
+    };
+
+    let tunnel = ssh_tunnel::create_tunnel(&tunnel_config).await?;
+
+    println!("SSH 隧道已建立，本地端口: {}", tunnel.local_port);
+
+    // 保存 SSH 隧道状态
+    let mut ssh_tunnel_lock = state.ssh_tunnel.lock().unwrap();
+    *ssh_tunnel_lock = Some(tunnel);
+
+    format!("localhost:{}", ssh_tunnel_lock.as_ref().unwrap().local_port)
+  } else {
+    server.clone()
+  };
+
+  println!("正在连接到 ZooKeeper: {}", actual_server);
+  let client = zookeeper_client::Client::connect(&actual_server).await.map_err(|e| {
     println!("连接失败: {:?}", e);
+    // 打印更详细的错误信息
     format!("连接失败: {:?}", e)
   })?;
+  println!("ZooKeeper 客户端已创建");
 
   // 如果提供了认证信息，进行认证
   if let (Some(u), Some(p)) = (username, password) {
@@ -88,8 +147,21 @@ async fn connect_zk(state: tauri::State<'_, ZkClient>, server: String, username:
 
   let mut client_lock = state.client.lock().unwrap();
   *client_lock = Some(Arc::new(client));
+
   println!("连接成功");
   Ok("SUCCESS".to_string())
+}
+
+fn parse_server(server: &str) -> Result<(String, u16), String> {
+  let parts: Vec<&str> = server.split(':').collect();
+  if parts.len() == 2 {
+    let host = parts[0].to_string();
+    let port: u16 = parts[1].parse().map_err(|_| "Invalid port number")?;
+    Ok((host, port))
+  } else {
+    // 默认 ZooKeeper 端口
+    Ok((server.to_string(), 2181))
+  }
 }
 
 #[tauri::command]
@@ -309,6 +381,7 @@ pub fn run() {
     )
     .manage(ZkClient {
       client: Mutex::new(None),
+      ssh_tunnel: Mutex::new(None),
     })
     .invoke_handler(tauri::generate_handler![
       connect_zk,

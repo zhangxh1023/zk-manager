@@ -14,7 +14,18 @@ export enum Command {
 }
 
 export interface CommandArgs {
-  [Command.connect_zk]: { server: string; username?: string; password?: string };
+  [Command.connect_zk]: {
+    server: string;
+    username?: string;
+    password?: string;
+    useSsh?: boolean;
+    sshHost?: string;
+    sshPort?: number;
+    sshUsername?: string;
+    sshAuthMethod?: string;
+    sshPassword?: string;
+    sshKeyPath?: string;
+  };
   [Command.list_children]: { path: string };
   [Command.get_data]: { path: string };
   [Command.get_acl]: { path: string };
@@ -45,7 +56,29 @@ async function invoke<K extends Command>(
 }
 
 export const zkApi = {
-  connect: (server: string, username?: string, password?: string) => invoke(Command.connect_zk, { server, username, password }),
+  connect: (
+    server: string,
+    username?: string,
+    password?: string,
+    useSsh?: boolean,
+    sshHost?: string,
+    sshPort?: number,
+    sshUsername?: string,
+    sshAuthMethod?: string,
+    sshPassword?: string,
+    sshKeyPath?: string,
+  ) => invoke(Command.connect_zk, {
+    server,
+    username,
+    password,
+    useSsh,
+    sshHost,
+    sshPort,
+    sshUsername,
+    sshAuthMethod,
+    sshPassword,
+    sshKeyPath,
+  }),
   listChildren: (path: string) => invoke(Command.list_children, { path }),
   getData: (path: string) => invoke(Command.get_data, { path }),
   getDetails: (path: string) => invoke(Command.get_znode_details, { path }),

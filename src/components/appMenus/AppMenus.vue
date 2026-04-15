@@ -29,19 +29,50 @@ const nameRef = ref('');
 const usernameRef = ref('');
 const passwordRef = ref('');
 
+// SSH options
+const useSsh = ref(false);
+const sshHost = ref('');
+const sshPort = ref(22);
+const sshUsername = ref('');
+const sshAuthMethod = ref('password');
+const sshPassword = ref('');
+const sshKeyPath = ref('');
+
 const connectionsStore = useConnectionsStore();
 
 const saveConnection = async () => {
   if (!urlRef.value || !nameRef.value) return;
   const db = await getDb();
   await db.execute(
-    'INSERT INTO connections (uuid, url, name, username, password) VALUES ($1, $2, $3, $4, $5)',
-    [uuidv4(), urlRef.value, nameRef.value, usernameRef.value || null, passwordRef.value || null],
+    `INSERT INTO connections (uuid, url, name, username, password, use_ssh, ssh_host, ssh_port, ssh_username, ssh_auth_method, ssh_password, ssh_key_path)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [
+      uuidv4(),
+      urlRef.value,
+      nameRef.value,
+      usernameRef.value || null,
+      passwordRef.value || null,
+      useSsh.value ? 1 : 0,
+      useSsh.value ? sshHost.value : null,
+      useSsh.value ? sshPort.value : null,
+      useSsh.value ? sshUsername.value : null,
+      useSsh.value ? sshAuthMethod.value : null,
+      useSsh.value && sshAuthMethod.value === 'password' ? sshPassword.value : null,
+      useSsh.value && sshAuthMethod.value === 'key' ? sshKeyPath.value : null,
+    ],
   );
+  // Reset all fields
   urlRef.value = '';
   nameRef.value = '';
   usernameRef.value = '';
   passwordRef.value = '';
+  useSsh.value = false;
+  sshHost.value = '';
+  sshPort.value = 22;
+  sshUsername.value = '';
+  sshAuthMethod.value = 'password';
+  sshPassword.value = '';
+  sshKeyPath.value = '';
   showNewConn.value = false;
   await connectionsStore.reloadConnections();
 };
@@ -191,11 +222,11 @@ const clearLogs = async () => {
 
     <!-- New Connection Dialog -->
     <Dialog v-model:open="showNewConn">
-      <DialogContent class="max-w-md">
-        <DialogHeader class="pb-2">
+      <DialogContent class="max-w-md max-h-[85vh] flex flex-col">
+        <DialogHeader class="pb-2 shrink-0">
           <DialogTitle>{{ t('app.newConnection') }}</DialogTitle>
         </DialogHeader>
-        <div class="space-y-3">
+        <div class="flex-1 overflow-y-auto space-y-3">
           <div class="space-y-1.5">
             <Label for="name" class="text-xs">{{ t('connection.name') }}</Label>
             <Input
@@ -231,8 +262,93 @@ const clearLogs = async () => {
               class="h-8"
             />
           </div>
+
+          <!-- SSH Tunnel Section -->
+          <div class="border-t pt-3 mt-3">
+            <div class="flex items-center gap-2 mb-3">
+              <input
+                id="useSsh"
+                v-model="useSsh"
+                type="checkbox"
+                class="w-4 h-4 rounded border-input"
+              >
+              <Label for="useSsh" class="text-xs font-medium">{{ t('connection.useSsh') || 'Use SSH Tunnel' }}</Label>
+            </div>
+
+            <div v-if="useSsh" class="space-y-3 pl-6">
+              <div class="grid grid-cols-2 gap-3">
+                <div class="space-y-1.5">
+                  <Label for="sshHost" class="text-xs">{{ t('connection.sshHost') || 'SSH Host' }}</Label>
+                  <Input
+                    id="sshHost"
+                    v-model="sshHost"
+                    placeholder="192.168.1.100"
+                    class="h-8"
+                  />
+                </div>
+                <div class="space-y-1.5">
+                  <Label for="sshPort" class="text-xs">{{ t('connection.sshPort') || 'SSH Port' }}</Label>
+                  <Input
+                    id="sshPort"
+                    v-model="sshPort"
+                    type="number"
+                    class="h-8"
+                  />
+                </div>
+              </div>
+              <div class="space-y-1.5">
+                <Label for="sshUsername" class="text-xs">{{ t('connection.sshUsername') || 'SSH Username' }}</Label>
+                <Input
+                  id="sshUsername"
+                  v-model="sshUsername"
+                  class="h-8"
+                />
+              </div>
+              <div class="space-y-1.5">
+                <Label class="text-xs">{{ t('connection.sshAuthMethod') || 'Auth Method' }}</Label>
+                <div class="flex gap-4">
+                  <label class="flex items-center gap-1.5 text-xs">
+                    <input
+                      v-model="sshAuthMethod"
+                      type="radio"
+                      value="password"
+                      class="w-3.5 h-3.5"
+                    >
+                    {{ t('connection.sshPassword') || 'Password' }}
+                  </label>
+                  <label class="flex items-center gap-1.5 text-xs">
+                    <input
+                      v-model="sshAuthMethod"
+                      type="radio"
+                      value="key"
+                      class="w-3.5 h-3.5"
+                    >
+                    {{ t('connection.sshKey') || 'Private Key' }}
+                  </label>
+                </div>
+              </div>
+              <div v-if="sshAuthMethod === 'password'" class="space-y-1.5">
+                <Label for="sshPassword" class="text-xs">{{ t('connection.sshPassword') || 'SSH Password' }}</Label>
+                <Input
+                  id="sshPassword"
+                  v-model="sshPassword"
+                  type="password"
+                  class="h-8"
+                />
+              </div>
+              <div v-else class="space-y-1.5">
+                <Label for="sshKeyPath" class="text-xs">{{ t('connection.sshKeyPath') || 'Private Key Path' }}</Label>
+                <Input
+                  id="sshKeyPath"
+                  v-model="sshKeyPath"
+                  placeholder="~/.ssh/id_rsa"
+                  class="h-8"
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        <DialogFooter class="pt-4">
+        <DialogFooter class="pt-4 shrink-0">
           <Button
             variant="outline"
             size="sm"

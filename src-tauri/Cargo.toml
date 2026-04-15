@@ -25,5 +25,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 zookeeper-client = { version = "0.11.1", features = ["tokio"] }
 tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
+russh = "0.49"
+async-trait = "0.1"
+ssh-key = "0.6"
 
 

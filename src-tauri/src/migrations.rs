@@ -20,5 +20,11 @@ pub fn get_migrations() -> Vec<Migration> {
       sql: include_str!("./migrations/v3.sql"),
       kind: MigrationKind::Up,
     },
+    Migration {
+      version: 4,
+      description: "add_ssh_tunnel_config",
+      sql: include_str!("./migrations/v4.sql"),
+      kind: MigrationKind::Up,
+    },
   ]
 }
