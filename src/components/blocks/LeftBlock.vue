@@ -317,13 +317,22 @@ import { getDb } from '../../db/db';
                 type="checkbox"
                 class="w-4 h-4 rounded border-input"
               >
-              <Label for="editUseSsh" class="text-xs font-medium">{{ t('connection.useSsh') }}</Label>
+              <Label
+                for="editUseSsh"
+                class="text-xs font-medium"
+              >{{ t('connection.useSsh') }}</Label>
             </div>
 
-            <div v-if="editingConn.use_ssh" class="space-y-3 pl-6">
+            <div
+              v-if="editingConn.use_ssh"
+              class="space-y-3 pl-6"
+            >
               <div class="grid grid-cols-2 gap-3">
                 <div>
-                  <Label for="editSshHost" class="text-xs">{{ t('connection.sshHost') }}</Label>
+                  <Label
+                    for="editSshHost"
+                    class="text-xs"
+                  >{{ t('connection.sshHost') }}</Label>
                   <Input
                     id="editSshHost"
                     v-model="editingConn.ssh_host"
@@ -331,7 +340,10 @@ import { getDb } from '../../db/db';
                   />
                 </div>
                 <div>
-                  <Label for="editSshPort" class="text-xs">{{ t('connection.sshPort') }}</Label>
+                  <Label
+                    for="editSshPort"
+                    class="text-xs"
+                  >{{ t('connection.sshPort') }}</Label>
                   <Input
                     id="editSshPort"
                     v-model="editingConn.ssh_port"
@@ -341,7 +353,10 @@ import { getDb } from '../../db/db';
                 </div>
               </div>
               <div>
-                <Label for="editSshUsername" class="text-xs">{{ t('connection.sshUsername') }}</Label>
+                <Label
+                  for="editSshUsername"
+                  class="text-xs"
+                >{{ t('connection.sshUsername') }}</Label>
                 <Input
                   id="editSshUsername"
                   v-model="editingConn.ssh_username"
@@ -372,7 +387,10 @@ import { getDb } from '../../db/db';
                 </div>
               </div>
               <div v-if="editingConn.ssh_auth_method === 'password'">
-                <Label for="editSshPassword" class="text-xs">{{ t('connection.sshPassword') }}</Label>
+                <Label
+                  for="editSshPassword"
+                  class="text-xs"
+                >{{ t('connection.sshPassword') }}</Label>
                 <Input
                   id="editSshPassword"
                   v-model="editingConn.ssh_password"
@@ -381,7 +399,10 @@ import { getDb } from '../../db/db';
                 />
               </div>
               <div v-else>
-                <Label for="editSshKeyPath" class="text-xs">{{ t('connection.sshKeyPath') }}</Label>
+                <Label
+                  for="editSshKeyPath"
+                  class="text-xs"
+                >{{ t('connection.sshKeyPath') }}</Label>
                 <Input
                   id="editSshKeyPath"
                   v-model="editingConn.ssh_key_path"

@@ -68,12 +68,23 @@ const getTabName = (path: string) => {
                 </button>
               </div>
             </TooltipTrigger>
-            <TooltipContent side="bottom" class="max-w-xs">
+            <TooltipContent
+              side="bottom"
+              class="max-w-xs"
+            >
               <p class="font-mono text-xs">
                 {{ tab.path }}
-                <span v-if="tab.isTemporary" class="text-muted-foreground ml-1">(临时)</span>
+                <span
+                  v-if="tab.isTemporary"
+                  class="text-muted-foreground ml-1"
+                >(临时)</span>
               </p>
-              <p v-if="tab.isTemporary" class="text-xs text-muted-foreground mt-1">双击变为永久</p>
+              <p
+                v-if="tab.isTemporary"
+                class="text-xs text-muted-foreground mt-1"
+              >
+                双击变为永久
+              </p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

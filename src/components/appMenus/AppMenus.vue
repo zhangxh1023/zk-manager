@@ -228,7 +228,10 @@ const clearLogs = async () => {
         </DialogHeader>
         <div class="flex-1 overflow-y-auto space-y-3">
           <div class="space-y-1.5">
-            <Label for="name" class="text-xs">{{ t('connection.name') }}</Label>
+            <Label
+              for="name"
+              class="text-xs"
+            >{{ t('connection.name') }}</Label>
             <Input
               id="name"
               v-model="nameRef"
@@ -237,7 +240,10 @@ const clearLogs = async () => {
             />
           </div>
           <div class="space-y-1.5">
-            <Label for="url" class="text-xs">{{ t('connection.url') }}</Label>
+            <Label
+              for="url"
+              class="text-xs"
+            >{{ t('connection.url') }}</Label>
             <Input
               id="url"
               v-model="urlRef"
@@ -246,7 +252,10 @@ const clearLogs = async () => {
             />
           </div>
           <div class="space-y-1.5">
-            <Label for="username" class="text-xs">{{ t('connection.username') }}</Label>
+            <Label
+              for="username"
+              class="text-xs"
+            >{{ t('connection.username') }}</Label>
             <Input
               id="username"
               v-model="usernameRef"
@@ -254,7 +263,10 @@ const clearLogs = async () => {
             />
           </div>
           <div class="space-y-1.5">
-            <Label for="password" class="text-xs">{{ t('connection.password') }}</Label>
+            <Label
+              for="password"
+              class="text-xs"
+            >{{ t('connection.password') }}</Label>
             <Input
               id="password"
               v-model="passwordRef"
@@ -272,13 +284,22 @@ const clearLogs = async () => {
                 type="checkbox"
                 class="w-4 h-4 rounded border-input"
               >
-              <Label for="useSsh" class="text-xs font-medium">{{ t('connection.useSsh') || 'Use SSH Tunnel' }}</Label>
+              <Label
+                for="useSsh"
+                class="text-xs font-medium"
+              >{{ t('connection.useSsh') || 'Use SSH Tunnel' }}</Label>
             </div>
 
-            <div v-if="useSsh" class="space-y-3 pl-6">
+            <div
+              v-if="useSsh"
+              class="space-y-3 pl-6"
+            >
               <div class="grid grid-cols-2 gap-3">
                 <div class="space-y-1.5">
-                  <Label for="sshHost" class="text-xs">{{ t('connection.sshHost') || 'SSH Host' }}</Label>
+                  <Label
+                    for="sshHost"
+                    class="text-xs"
+                  >{{ t('connection.sshHost') || 'SSH Host' }}</Label>
                   <Input
                     id="sshHost"
                     v-model="sshHost"
@@ -287,7 +308,10 @@ const clearLogs = async () => {
                   />
                 </div>
                 <div class="space-y-1.5">
-                  <Label for="sshPort" class="text-xs">{{ t('connection.sshPort') || 'SSH Port' }}</Label>
+                  <Label
+                    for="sshPort"
+                    class="text-xs"
+                  >{{ t('connection.sshPort') || 'SSH Port' }}</Label>
                   <Input
                     id="sshPort"
                     v-model="sshPort"
@@ -297,7 +321,10 @@ const clearLogs = async () => {
                 </div>
               </div>
               <div class="space-y-1.5">
-                <Label for="sshUsername" class="text-xs">{{ t('connection.sshUsername') || 'SSH Username' }}</Label>
+                <Label
+                  for="sshUsername"
+                  class="text-xs"
+                >{{ t('connection.sshUsername') || 'SSH Username' }}</Label>
                 <Input
                   id="sshUsername"
                   v-model="sshUsername"
@@ -327,8 +354,14 @@ const clearLogs = async () => {
                   </label>
                 </div>
               </div>
-              <div v-if="sshAuthMethod === 'password'" class="space-y-1.5">
-                <Label for="sshPassword" class="text-xs">{{ t('connection.sshPassword') || 'SSH Password' }}</Label>
+              <div
+                v-if="sshAuthMethod === 'password'"
+                class="space-y-1.5"
+              >
+                <Label
+                  for="sshPassword"
+                  class="text-xs"
+                >{{ t('connection.sshPassword') || 'SSH Password' }}</Label>
                 <Input
                   id="sshPassword"
                   v-model="sshPassword"
@@ -336,8 +369,14 @@ const clearLogs = async () => {
                   class="h-8"
                 />
               </div>
-              <div v-else class="space-y-1.5">
-                <Label for="sshKeyPath" class="text-xs">{{ t('connection.sshKeyPath') || 'Private Key Path' }}</Label>
+              <div
+                v-else
+                class="space-y-1.5"
+              >
+                <Label
+                  for="sshKeyPath"
+                  class="text-xs"
+                >{{ t('connection.sshKeyPath') || 'Private Key Path' }}</Label>
                 <Input
                   id="sshKeyPath"
                   v-model="sshKeyPath"
@@ -374,42 +413,75 @@ const clearLogs = async () => {
         </DialogHeader>
         <div class="space-y-3">
           <div class="space-y-1.5">
-            <Label for="lang" class="text-xs">{{ t('settings.language') }}</Label>
+            <Label
+              for="lang"
+              class="text-xs"
+            >{{ t('settings.language') }}</Label>
             <select
               id="lang"
               v-model="tempSettings.language"
               class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
-              <option value="en">English</option>
-              <option value="zh">中文</option>
+              <option value="en">
+                English
+              </option>
+              <option value="zh">
+                中文
+              </option>
             </select>
           </div>
           <div class="space-y-1.5">
-            <Label for="theme" class="text-xs">{{ t('settings.theme') }}</Label>
+            <Label
+              for="theme"
+              class="text-xs"
+            >{{ t('settings.theme') }}</Label>
             <select
               id="theme"
               v-model="tempSettings.theme"
               class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
-              <option value="light">{{ t('settings.themes.light') }}</option>
-              <option value="dark">{{ t('settings.themes.dark') }}</option>
-              <option value="system">{{ t('settings.themes.system') }}</option>
+              <option value="light">
+                {{ t('settings.themes.light') }}
+              </option>
+              <option value="dark">
+                {{ t('settings.themes.dark') }}
+              </option>
+              <option value="system">
+                {{ t('settings.themes.system') }}
+              </option>
             </select>
           </div>
           <div class="space-y-1.5">
-            <Label for="scale" class="text-xs">{{ t('settings.scale') }}</Label>
+            <Label
+              for="scale"
+              class="text-xs"
+            >{{ t('settings.scale') }}</Label>
             <select
               id="scale"
               v-model="tempSettings.scale"
               class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
-              <option :value="0.8">80%</option>
-              <option :value="0.9">90%</option>
-              <option :value="1.0">100%</option>
-              <option :value="1.1">110%</option>
-              <option :value="1.25">125%</option>
-              <option :value="1.5">150%</option>
-              <option :value="2.0">200%</option>
+              <option :value="0.8">
+                80%
+              </option>
+              <option :value="0.9">
+                90%
+              </option>
+              <option :value="1.0">
+                100%
+              </option>
+              <option :value="1.1">
+                110%
+              </option>
+              <option :value="1.25">
+                125%
+              </option>
+              <option :value="1.5">
+                150%
+              </option>
+              <option :value="2.0">
+                200%
+              </option>
             </select>
           </div>
         </div>
