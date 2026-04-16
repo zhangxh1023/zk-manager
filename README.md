@@ -4,6 +4,8 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 
 [中文版](README_zh.md) | English
 
+> ⚠️ **Note:** This project is still under active development. Some features may be incomplete or unstable.
+
 ## Features
 
 ### Completed
