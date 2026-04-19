@@ -10,6 +10,7 @@ export interface ZnodeTab {
   acl: ZkAclEntry[];
   isActive: boolean;
   isTemporary: boolean;
+  isDirty?: boolean;
 }
 
 export const useZnodeTabsStore = defineStore('znodeTabs', () => {
@@ -45,6 +46,7 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
         ...newTab,
         isActive: true,
         isTemporary: false, // Permanent tab
+        isDirty: false,
       });
       return false; // New tab created
     }
@@ -102,6 +104,7 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
         ...newTab,
         isActive: true,
         isTemporary: true, // Temporary tab
+        isDirty: false,
       });
     }
     return false; // New temporary tab was created
@@ -143,6 +146,21 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     }
   }
 
+  const setDirty = (path: string, dirty: boolean) => {
+    const tab = znodeTabs.value.find(item => item.path === path);
+    if (tab) {
+      tab.isDirty = dirty;
+    }
+  }
+
+  const closeTabsByConnection = (uuid: string) => {
+    znodeTabs.value = znodeTabs.value.filter(item => item.connectionUuid !== uuid);
+    // Ensure active tab logic
+    if (activeTab.value === null && znodeTabs.value.length) {
+      znodeTabs.value[znodeTabs.value.length - 1].isActive = true;
+    }
+  }
+
   const closeOtherTabs = (path: string) => {
     znodeTabs.value = znodeTabs.value.filter(item => item.path === path);
     setActiveTab(path);
@@ -173,5 +191,7 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     closeOtherTabs,
     closeTabsToRight,
     clearTabs,
+    setDirty,
+    closeTabsByConnection,
   }
 })

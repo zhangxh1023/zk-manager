@@ -54,5 +54,69 @@ export const useConnectionsStore = defineStore('connections', () => {
     }));
   };
 
-  return { connections, reloadConnections };
+  const addConnection = async (conn: Connection) => {
+    const db = await getDb();
+    await db.execute(
+      `INSERT INTO connections (
+        uuid, name, url, username, password, use_ssh, ssh_host, ssh_port, ssh_username, ssh_auth_method, ssh_password, ssh_key_path
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        conn.uuid,
+        conn.name,
+        conn.url,
+        conn.username || null,
+        conn.password || null,
+        conn.use_ssh ? 1 : 0,
+        conn.use_ssh ? conn.ssh_host : null,
+        conn.use_ssh ? conn.ssh_port : null,
+        conn.use_ssh ? conn.ssh_username : null,
+        conn.use_ssh ? conn.ssh_auth_method : null,
+        conn.use_ssh && conn.ssh_auth_method === 'password' ? conn.ssh_password : null,
+        conn.use_ssh && conn.ssh_auth_method === 'key' ? conn.ssh_key_path : null,
+      ],
+    );
+    await reloadConnections();
+  };
+
+  const updateConnection = async (conn: Connection) => {
+    const db = await getDb();
+    await db.execute(
+      `UPDATE connections SET
+        name = $1,
+        url = $2,
+        username = $3,
+        password = $4,
+        use_ssh = $5,
+        ssh_host = $6,
+        ssh_port = $7,
+        ssh_username = $8,
+        ssh_auth_method = $9,
+        ssh_password = $10,
+        ssh_key_path = $11
+      WHERE uuid = $12`,
+      [
+        conn.name,
+        conn.url,
+        conn.username || null,
+        conn.password || null,
+        conn.use_ssh ? 1 : 0,
+        conn.use_ssh ? conn.ssh_host : null,
+        conn.use_ssh ? conn.ssh_port : null,
+        conn.use_ssh ? conn.ssh_username : null,
+        conn.use_ssh ? conn.ssh_auth_method : null,
+        conn.use_ssh && conn.ssh_auth_method === 'password' ? conn.ssh_password : null,
+        conn.use_ssh && conn.ssh_auth_method === 'key' ? conn.ssh_key_path : null,
+        conn.uuid,
+      ],
+    );
+    await reloadConnections();
+  };
+
+  const removeConnection = async (uuid: string) => {
+    const db = await getDb();
+    await db.execute('DELETE FROM connections WHERE uuid = $1', [uuid]);
+    await reloadConnections();
+  };
+
+  return { connections, reloadConnections, addConnection, updateConnection, removeConnection };
 });

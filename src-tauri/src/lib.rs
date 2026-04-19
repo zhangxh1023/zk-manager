@@ -64,13 +64,14 @@ impl From<zookeeper_client::Acl> for ZkAclEntry {
 }
 
 struct ZkClient {
-  client: Mutex<Option<Arc<Client>>>,
-  ssh_tunnel: Mutex<Option<ssh_tunnel::SshTunnel>>,
+  clients: Mutex<std::collections::HashMap<String, Arc<Client>>>,
+  ssh_tunnels: Mutex<std::collections::HashMap<String, ssh_tunnel::SshTunnel>>,
 }
 
 #[tauri::command]
 async fn connect_zk(
   state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
   server: String,
   username: Option<String>,
   password: Option<String>,
@@ -82,12 +83,10 @@ async fn connect_zk(
   ssh_password: Option<String>,
   ssh_key_path: Option<String>,
 ) -> Result<String, String> {
-  println!("尝试连接 ZK: {}", server);
+  println!("尝试连接 ZK: {} uuid: {}", server, connection_uuid);
 
-  // 解析 ZooKeeper 服务器地址
   let (zk_server_host, zk_server_port) = parse_server(&server)?;
 
-  // 如果使用 SSH 隧道，先创建隧道
   let actual_server = if use_ssh {
     let ssh_host = ssh_host.ok_or("SSH host is required when SSH tunnel is enabled")?;
     let ssh_port = ssh_port.unwrap_or(22);
@@ -116,11 +115,11 @@ async fn connect_zk(
 
     println!("SSH 隧道已建立，本地端口: {}", tunnel.local_port);
 
-    // 保存 SSH 隧道状态
-    let mut ssh_tunnel_lock = state.ssh_tunnel.lock().unwrap();
-    *ssh_tunnel_lock = Some(tunnel);
+    let mut ssh_tunnels_lock = state.ssh_tunnels.lock().unwrap();
+    let port = tunnel.local_port;
+    ssh_tunnels_lock.insert(connection_uuid.clone(), tunnel);
 
-    format!("localhost:{}", ssh_tunnel_lock.as_ref().unwrap().local_port)
+    format!("localhost:{}", port)
   } else {
     server.clone()
   };
@@ -128,12 +127,10 @@ async fn connect_zk(
   println!("正在连接到 ZooKeeper: {}", actual_server);
   let client = zookeeper_client::Client::connect(&actual_server).await.map_err(|e| {
     println!("连接失败: {:?}", e);
-    // 打印更详细的错误信息
     format!("连接失败: {:?}", e)
   })?;
   println!("ZooKeeper 客户端已创建");
 
-  // 如果提供了认证信息，进行认证
   if let (Some(u), Some(p)) = (username, password) {
     println!("进行认证: {}", u);
     let auth_data = format!("{}:{}", u, p);
@@ -145,10 +142,25 @@ async fn connect_zk(
     println!("未提供认证信息，使用匿名访问");
   }
 
-  let mut client_lock = state.client.lock().unwrap();
-  *client_lock = Some(Arc::new(client));
+  let mut clients_lock = state.clients.lock().unwrap();
+  clients_lock.insert(connection_uuid, Arc::new(client));
 
   println!("连接成功");
+  Ok("SUCCESS".to_string())
+}
+
+#[tauri::command]
+async fn disconnect_zk(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+) -> Result<String, String> {
+  println!("断开连接 ZK: {}", connection_uuid);
+  let mut clients_lock = state.clients.lock().map_err(|_| "Mutex poisoned")?;
+  clients_lock.remove(&connection_uuid);
+
+  let mut ssh_tunnels_lock = state.ssh_tunnels.lock().map_err(|_| "Mutex poisoned")?;
+  ssh_tunnels_lock.remove(&connection_uuid);
+
   Ok("SUCCESS".to_string())
 }
 
@@ -159,7 +171,6 @@ fn parse_server(server: &str) -> Result<(String, u16), String> {
     let port: u16 = parts[1].parse().map_err(|_| "Invalid port number")?;
     Ok((host, port))
   } else {
-    // 默认 ZooKeeper 端口
     Ok((server.to_string(), 2181))
   }
 }
@@ -167,79 +178,68 @@ fn parse_server(server: &str) -> Result<(String, u16), String> {
 #[tauri::command]
 async fn list_children(
   state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
   path: String,
 ) -> Result<Vec<String>, String> {
-  println!("获取 path: {}", path);
-  // 1. 在最小作用域内获取 Arc<Client>
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
-    // 使用 .clone() 增加引用计数，这样即使锁释放了，Client 依然可用
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
   let (children, _) = client_arc.get_children(&path).await.map_err(|e| e.to_string())?;
   Ok(children)
 }
 
 #[tauri::command]
-async fn get_data(state: tauri::State<'_, ZkClient>, path: String) -> Result<Vec<u8>, String> {
-  println!("获取 path data: {}", path);
-  // 1. 在最小作用域内获取 Arc<Client>
+async fn get_data(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String
+) -> Result<Vec<u8>, String> {
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
-    // 使用 .clone() 增加引用计数，这样即使锁释放了，Client 依然可用
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
-  let (data, stat) = client_arc.get_data(&path).await.map_err(|e| e.to_string())?;
-  println!("--- 节点元数据 ---");
-  println!("创建时间 (czxid): {}", stat.czxid);
-  println!("修改时间 (mzxid): {}", stat.mzxid);
-  println!("数据版本 (version): {}", stat.version);
-  println!("子节点版本 (cversion): {}", stat.cversion);
-  println!("数据长度: {} bytes", stat.data_length);
-  println!("子节点数量: {}", stat.num_children);
+  let (data, _) = client_arc.get_data(&path).await.map_err(|e| e.to_string())?;
   Ok(data)
 }
 
 #[tauri::command]
-async fn get_acl(state: tauri::State<'_, ZkClient>, path: String) -> Result<Vec<ZkAclEntry>, String> {
-  println!("获取 path data: {}", path);
-  // 1. 在最小作用域内获取 Arc<Client>
+async fn get_acl(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String
+) -> Result<Vec<ZkAclEntry>, String> {
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
-    // 使用 .clone() 增加引用计数，这样即使锁释放了，Client 依然可用
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
-  let (acl, stat) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
-  println!("--- 节点元数据 ---");
-  println!("创建时间 (czxid): {}", stat.czxid);
-  println!("修改时间 (mzxid): {}", stat.mzxid);
-  println!("数据版本 (version): {}", stat.version);
-  println!("子节点版本 (cversion): {}", stat.cversion);
-  println!("数据长度: {} bytes", stat.data_length);
-  println!("子节点数量: {}", stat.num_children);
+  let (acl, _) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
 
   let converted: Vec<ZkAclEntry> = acl.into_iter().map(|a| a.into()).collect();
   Ok(converted)
 }
 
 #[tauri::command]
-async fn get_znode_details(state: tauri::State<'_, ZkClient>, path: String) -> Result<ZnodeDetails, String> {
-  println!("获取 znode details: {}", path);
+async fn get_znode_details(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String
+) -> Result<ZnodeDetails, String> {
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
   let (data, stat) = client_arc.get_data(&path).await.map_err(|e| e.to_string())?;
   let (acl, _) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
@@ -253,18 +253,20 @@ async fn get_znode_details(state: tauri::State<'_, ZkClient>, path: String) -> R
 }
 
 #[tauri::command]
-async fn set_data(state: tauri::State<'_, ZkClient>, path: String, data: Vec<u8>) -> Result<ZnodeDetails, String> {
-  println!("设置节点数据: {}, 数据长度: {}", path, data.len());
+async fn set_data(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String,
+  data: Vec<u8>
+) -> Result<ZnodeDetails, String> {
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
-  // 使用版本 -1 忽略版本检查
   let stat = client_arc.set_data(&path, data.as_slice(), Some(-1)).await.map_err(|e| e.to_string())?;
-  // 获取更新后的数据和 ACL
   let (new_data, _) = client_arc.get_data(&path).await.map_err(|e| e.to_string())?;
   let (acl, _) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
 
@@ -277,16 +279,18 @@ async fn set_data(state: tauri::State<'_, ZkClient>, path: String, data: Vec<u8>
 }
 
 #[tauri::command]
-async fn delete_node(state: tauri::State<'_, ZkClient>, path: String) -> Result<String, String> {
-  println!("删除节点: {}", path);
+async fn delete_node(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String
+) -> Result<String, String> {
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
-  // 使用版本 -1 忽略版本检查
   match client_arc.delete(&path, Some(-1)).await {
     Ok(_) => Ok("SUCCESS".to_string()),
     Err(e) => {
@@ -301,53 +305,49 @@ async fn delete_node(state: tauri::State<'_, ZkClient>, path: String) -> Result<
 }
 
 #[tauri::command]
-async fn create_node(state: tauri::State<'_, ZkClient>, path: String, data: Vec<u8>) -> Result<String, String> {
-  println!("创建节点: {}", path);
+async fn create_node(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String,
+  data: Vec<u8>
+) -> Result<String, String> {
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
-  // 使用持久节点创建，使用 world:anyone ACL
   let options = CreateMode::Persistent.with_acls(Acls::anyone_all());
-  println!("调用 create: path={}, data_len={}", path, data.len());
   match client_arc.create(&path, data.as_slice(), &options).await {
-    Ok(_) => {
-      println!("节点创建成功: {}", path);
-      Ok("SUCCESS".to_string())
-    }
+    Ok(_) => Ok("SUCCESS".to_string()),
     Err(e) => {
-      println!("创建节点失败: {:?}", e);
       Err(format!("创建节点失败: {:?}", e))
     }
   }
 }
 
 #[tauri::command]
-async fn set_acl(state: tauri::State<'_, ZkClient>, path: String, acl_entries: Vec<ZkAclEntry>) -> Result<String, String> {
-  println!("设置节点 ACL: {}", path);
+async fn set_acl(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String,
+  acl_entries: Vec<ZkAclEntry>
+) -> Result<String, String> {
   let client_arc = {
-    let guard = state.client.lock().map_err(|_| "Mutex poisoned")?;
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
     guard
-      .as_ref()
+      .get(&connection_uuid)
       .cloned()
-      .ok_or("Client not initialized! Please init first.")?
+      .ok_or("Client not initialized for this connection!")?
   };
-  // 转换 ZkAclEntry 到 Acl
   let acls: Result<Vec<Acl>, String> = acl_entries.into_iter().map(|entry| {
-    let scheme = entry.scheme;
-    let id = entry.id;
-    let auth_id = AuthId::new(&scheme, &id);
-    // 解析权限字符串，例如 "READ|WRITE|DELETE" 或 "ALL"
-    let perm_str = entry.permission;
-    let permission = parse_permissions(&perm_str)?;
+    let auth_id = AuthId::new(&entry.scheme, &entry.id);
+    let permission = parse_permissions(&entry.permission)?;
     Ok(Acl::new(permission, auth_id))
   }).collect();
   let acls = acls?;
-  // 使用版本 -1 忽略版本检查
-  let _stat = client_arc.set_acl(&path, &acls, Some(-1)).await.map_err(|e| e.to_string())?;
+  client_arc.set_acl(&path, &acls, Some(-1)).await.map_err(|e| e.to_string())?;
   Ok("SUCCESS".to_string())
 }
 
@@ -380,11 +380,12 @@ pub fn run() {
         .build(),
     )
     .manage(ZkClient {
-      client: Mutex::new(None),
-      ssh_tunnel: Mutex::new(None),
+      clients: Mutex::new(std::collections::HashMap::new()),
+      ssh_tunnels: Mutex::new(std::collections::HashMap::new()),
     })
     .invoke_handler(tauri::generate_handler![
       connect_zk,
+      disconnect_zk,
       list_children,
       get_data,
       get_acl,
@@ -397,3 +398,4 @@ pub fn run() {
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
+

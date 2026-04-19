@@ -65,7 +65,7 @@ export const useZkTreeStore = defineStore('zkTree', () => {
 
     loadingStates.value[key] = true;
     try {
-      const childNames = await zkApi.listChildren(path);
+      const childNames = await zkApi.listChildren(connectionUuid, path);
       childrenCache.value[key] = childNames.map(name => {
         const childPath = path === '/' ? `/${name}` : `${path}/${name}`;
         return {

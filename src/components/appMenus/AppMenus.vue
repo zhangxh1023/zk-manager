@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { CirclePlus, Settings, ClipboardClock } from 'lucide-vue-next';
+
 import {
   Dialog,
   DialogContent,
@@ -12,70 +12,12 @@ import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { getDb } from '../../db/db';
-import { v4 as uuidv4 } from 'uuid';
-import { useConnectionsStore } from '../../stores/connections';
 import { useSettingsStore } from '../../stores/settings';
 import { useLogsStore } from '../../stores/logs';
 import i18n from '../../i18n';
 import { showToast } from '../../utils/toast';
 
 const { t } = i18n.global;
-
-// New connection dialog
-const showNewConn = ref(false);
-const urlRef = ref('');
-const nameRef = ref('');
-const usernameRef = ref('');
-const passwordRef = ref('');
-
-// SSH options
-const useSsh = ref(false);
-const sshHost = ref('');
-const sshPort = ref(22);
-const sshUsername = ref('');
-const sshAuthMethod = ref('password');
-const sshPassword = ref('');
-const sshKeyPath = ref('');
-
-const connectionsStore = useConnectionsStore();
-
-const saveConnection = async () => {
-  if (!urlRef.value || !nameRef.value) return;
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO connections (uuid, url, name, username, password, use_ssh, ssh_host, ssh_port, ssh_username, ssh_auth_method, ssh_password, ssh_key_path)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-    [
-      uuidv4(),
-      urlRef.value,
-      nameRef.value,
-      usernameRef.value || null,
-      passwordRef.value || null,
-      useSsh.value ? 1 : 0,
-      useSsh.value ? sshHost.value : null,
-      useSsh.value ? sshPort.value : null,
-      useSsh.value ? sshUsername.value : null,
-      useSsh.value ? sshAuthMethod.value : null,
-      useSsh.value && sshAuthMethod.value === 'password' ? sshPassword.value : null,
-      useSsh.value && sshAuthMethod.value === 'key' ? sshKeyPath.value : null,
-    ],
-  );
-  // Reset all fields
-  urlRef.value = '';
-  nameRef.value = '';
-  usernameRef.value = '';
-  passwordRef.value = '';
-  useSsh.value = false;
-  sshHost.value = '';
-  sshPort.value = 22;
-  sshUsername.value = '';
-  sshAuthMethod.value = 'password';
-  sshPassword.value = '';
-  sshKeyPath.value = '';
-  showNewConn.value = false;
-  await connectionsStore.reloadConnections();
-};
 
 // Settings
 const settingsStore = useSettingsStore();
@@ -159,251 +101,15 @@ const clearLogs = async () => {
   showClearConfirm.value = false;
   showToast.success(t('logs.cleared') || 'Logs cleared');
 };
+
+defineExpose({
+  openSettings,
+  openLogs,
+});
 </script>
 
 <template>
-  <div class="flex items-center gap-1 px-2 border-b">
-    <!-- New Connection -->
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="cursor-pointer"
-            @click="showNewConn = true"
-          >
-            <CirclePlus class="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{{ t('app.newConnection') }}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-
-    <!-- Settings -->
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="cursor-pointer"
-            @click="openSettings"
-          >
-            <Settings class="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{{ t('app.settings') }}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-
-    <!-- Logs -->
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button
-            variant="ghost"
-            size="icon"
-            class="cursor-pointer"
-            @click="openLogs"
-          >
-            <ClipboardClock class="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{{ t('app.logs') }}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-
-    <!-- New Connection Dialog -->
-    <Dialog v-model:open="showNewConn">
-      <DialogContent class="max-w-md max-h-[85vh] flex flex-col">
-        <DialogHeader class="pb-2 shrink-0">
-          <DialogTitle>{{ t('app.newConnection') }}</DialogTitle>
-        </DialogHeader>
-        <div class="flex-1 overflow-y-auto space-y-3">
-          <div class="space-y-1.5">
-            <Label
-              for="name"
-              class="text-xs"
-            >{{ t('connection.name') }}</Label>
-            <Input
-              id="name"
-              v-model="nameRef"
-              :placeholder="t('connection.name')"
-              class="h-8"
-            />
-          </div>
-          <div class="space-y-1.5">
-            <Label
-              for="url"
-              class="text-xs"
-            >{{ t('connection.url') }}</Label>
-            <Input
-              id="url"
-              v-model="urlRef"
-              placeholder="localhost:2181"
-              class="h-8"
-            />
-          </div>
-          <div class="space-y-1.5">
-            <Label
-              for="username"
-              class="text-xs"
-            >{{ t('connection.username') }}</Label>
-            <Input
-              id="username"
-              v-model="usernameRef"
-              class="h-8"
-            />
-          </div>
-          <div class="space-y-1.5">
-            <Label
-              for="password"
-              class="text-xs"
-            >{{ t('connection.password') }}</Label>
-            <Input
-              id="password"
-              v-model="passwordRef"
-              type="password"
-              class="h-8"
-            />
-          </div>
-
-          <!-- SSH Tunnel Section -->
-          <div class="border-t pt-3 mt-3">
-            <div class="flex items-center gap-2 mb-3">
-              <input
-                id="useSsh"
-                v-model="useSsh"
-                type="checkbox"
-                class="w-4 h-4 rounded border-input"
-              >
-              <Label
-                for="useSsh"
-                class="text-xs font-medium"
-              >{{ t('connection.useSsh') || 'Use SSH Tunnel' }}</Label>
-            </div>
-
-            <div
-              v-if="useSsh"
-              class="space-y-3 pl-6"
-            >
-              <div class="grid grid-cols-2 gap-3">
-                <div class="space-y-1.5">
-                  <Label
-                    for="sshHost"
-                    class="text-xs"
-                  >{{ t('connection.sshHost') || 'SSH Host' }}</Label>
-                  <Input
-                    id="sshHost"
-                    v-model="sshHost"
-                    placeholder="192.168.1.100"
-                    class="h-8"
-                  />
-                </div>
-                <div class="space-y-1.5">
-                  <Label
-                    for="sshPort"
-                    class="text-xs"
-                  >{{ t('connection.sshPort') || 'SSH Port' }}</Label>
-                  <Input
-                    id="sshPort"
-                    v-model="sshPort"
-                    type="number"
-                    class="h-8"
-                  />
-                </div>
-              </div>
-              <div class="space-y-1.5">
-                <Label
-                  for="sshUsername"
-                  class="text-xs"
-                >{{ t('connection.sshUsername') || 'SSH Username' }}</Label>
-                <Input
-                  id="sshUsername"
-                  v-model="sshUsername"
-                  class="h-8"
-                />
-              </div>
-              <div class="space-y-1.5">
-                <Label class="text-xs">{{ t('connection.sshAuthMethod') || 'Auth Method' }}</Label>
-                <div class="flex gap-4">
-                  <label class="flex items-center gap-1.5 text-xs">
-                    <input
-                      v-model="sshAuthMethod"
-                      type="radio"
-                      value="password"
-                      class="w-3.5 h-3.5"
-                    >
-                    {{ t('connection.sshPassword') || 'Password' }}
-                  </label>
-                  <label class="flex items-center gap-1.5 text-xs">
-                    <input
-                      v-model="sshAuthMethod"
-                      type="radio"
-                      value="key"
-                      class="w-3.5 h-3.5"
-                    >
-                    {{ t('connection.sshKey') || 'Private Key' }}
-                  </label>
-                </div>
-              </div>
-              <div
-                v-if="sshAuthMethod === 'password'"
-                class="space-y-1.5"
-              >
-                <Label
-                  for="sshPassword"
-                  class="text-xs"
-                >{{ t('connection.sshPassword') || 'SSH Password' }}</Label>
-                <Input
-                  id="sshPassword"
-                  v-model="sshPassword"
-                  type="password"
-                  class="h-8"
-                />
-              </div>
-              <div
-                v-else
-                class="space-y-1.5"
-              >
-                <Label
-                  for="sshKeyPath"
-                  class="text-xs"
-                >{{ t('connection.sshKeyPath') || 'Private Key Path' }}</Label>
-                <Input
-                  id="sshKeyPath"
-                  v-model="sshKeyPath"
-                  placeholder="~/.ssh/id_rsa"
-                  class="h-8"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-        <DialogFooter class="pt-4 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            @click="showNewConn = false"
-          >
-            {{ t('connection.cancel') }}
-          </Button>
-          <Button
-            size="sm"
-            @click="saveConnection"
-          >
-            {{ t('connection.save') }}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+  <div class="hidden">
 
     <!-- Settings Dialog -->
     <Dialog v-model:open="showSettings">
@@ -415,7 +121,7 @@ const clearLogs = async () => {
           <div class="space-y-1.5">
             <Label
               for="lang"
-              class="text-xs"
+              class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
             >{{ t('settings.language') }}</Label>
             <select
               id="lang"
@@ -433,7 +139,7 @@ const clearLogs = async () => {
           <div class="space-y-1.5">
             <Label
               for="theme"
-              class="text-xs"
+              class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
             >{{ t('settings.theme') }}</Label>
             <select
               id="theme"
@@ -454,7 +160,7 @@ const clearLogs = async () => {
           <div class="space-y-1.5">
             <Label
               for="scale"
-              class="text-xs"
+              class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
             >{{ t('settings.scale') }}</Label>
             <select
               id="scale"

@@ -3,6 +3,7 @@ import type { ZnodeDetails, ZkAclEntry } from '../types/znodeDetails';
 
 export enum Command {
   connect_zk = 'connect_zk',
+  disconnect_zk = 'disconnect_zk',
   list_children = 'list_children',
   get_data = 'get_data',
   get_acl = 'get_acl',
@@ -15,6 +16,7 @@ export enum Command {
 
 export interface CommandArgs {
   [Command.connect_zk]: {
+    connectionUuid: string;
     server: string;
     username?: string;
     password?: string;
@@ -26,18 +28,20 @@ export interface CommandArgs {
     sshPassword?: string;
     sshKeyPath?: string;
   };
-  [Command.list_children]: { path: string };
-  [Command.get_data]: { path: string };
-  [Command.get_acl]: { path: string };
-  [Command.get_znode_details]: { path: string };
-  [Command.set_data]: { path: string; data: number[] };
-  [Command.delete_node]: { path: string };
-  [Command.create_node]: { path: string; data: number[] };
-  [Command.set_acl]: { path: string; acl_entries: ZkAclEntry[] };
+  [Command.disconnect_zk]: { connectionUuid: string };
+  [Command.list_children]: { connectionUuid: string; path: string };
+  [Command.get_data]: { connectionUuid: string; path: string };
+  [Command.get_acl]: { connectionUuid: string; path: string };
+  [Command.get_znode_details]: { connectionUuid: string; path: string };
+  [Command.set_data]: { connectionUuid: string; path: string; data: number[] };
+  [Command.delete_node]: { connectionUuid: string; path: string };
+  [Command.create_node]: { connectionUuid: string; path: string; data: number[] };
+  [Command.set_acl]: { connectionUuid: string; path: string; acl_entries: ZkAclEntry[] };
 }
 
 export interface CommandReturns {
   [Command.connect_zk]: string;
+  [Command.disconnect_zk]: string;
   [Command.list_children]: string[];
   [Command.get_data]: number[];
   [Command.get_acl]: ZkAclEntry[];
@@ -57,6 +61,7 @@ async function invoke<K extends Command>(
 
 export const zkApi = {
   connect: (
+    connectionUuid: string,
     server: string,
     username?: string,
     password?: string,
@@ -68,6 +73,7 @@ export const zkApi = {
     sshPassword?: string,
     sshKeyPath?: string,
   ) => invoke(Command.connect_zk, {
+    connectionUuid,
     server,
     username,
     password,
@@ -79,12 +85,13 @@ export const zkApi = {
     sshPassword,
     sshKeyPath,
   }),
-  listChildren: (path: string) => invoke(Command.list_children, { path }),
-  getData: (path: string) => invoke(Command.get_data, { path }),
-  getDetails: (path: string) => invoke(Command.get_znode_details, { path }),
-  setData: (path: string, data: number[]) => invoke(Command.set_data, { path, data }),
-  createNode: (path: string, data: number[] = []) => invoke(Command.create_node, { path, data }),
-  deleteNode: (path: string) => invoke(Command.delete_node, { path }),
-  getAcl: (path: string) => invoke(Command.get_acl, { path }),
-  setAcl: (path: string, aclEntries: ZkAclEntry[]) => invoke(Command.set_acl, { path, acl_entries: aclEntries }),
+  disconnect: (connectionUuid: string) => invoke(Command.disconnect_zk, { connectionUuid }),
+  listChildren: (connectionUuid: string, path: string) => invoke(Command.list_children, { connectionUuid, path }),
+  getData: (connectionUuid: string, path: string) => invoke(Command.get_data, { connectionUuid, path }),
+  getDetails: (connectionUuid: string, path: string) => invoke(Command.get_znode_details, { connectionUuid, path }),
+  setData: (connectionUuid: string, path: string, data: number[]) => invoke(Command.set_data, { connectionUuid, path, data }),
+  createNode: (connectionUuid: string, path: string, data: number[] = []) => invoke(Command.create_node, { connectionUuid, path, data }),
+  deleteNode: (connectionUuid: string, path: string) => invoke(Command.delete_node, { connectionUuid, path }),
+  getAcl: (connectionUuid: string, path: string) => invoke(Command.get_acl, { connectionUuid, path }),
+  setAcl: (connectionUuid: string, path: string, aclEntries: ZkAclEntry[]) => invoke(Command.set_acl, { connectionUuid, path, acl_entries: aclEntries }),
 };

@@ -49,7 +49,7 @@ const isDeleting = ref(false);
 const handleNavigate = async () => {
   try {
     await zkTreeStore.navigateTo(props.connectionUuid, props.node.path);
-    const details = await zkApi.getDetails(props.node.path);
+    const details = await zkApi.getDetails(props.connectionUuid, props.node.path);
     const activatedExisting = znodeTabsStore.replaceOrCreateTemporaryTab({
       connectionUuid: props.connectionUuid,
       path: props.node.path,
@@ -72,7 +72,7 @@ const handleNavigate = async () => {
 
 // Open node in new tab (for right-click, creates permanent tab)
 const handleOpenInTab = async () => {
-  const details = await zkApi.getDetails(props.node.path);
+  const details = await zkApi.getDetails(props.connectionUuid, props.node.path);
   const tabExisted = znodeTabsStore.addTab({
     connectionUuid: props.connectionUuid,
     path: props.node.path,
@@ -107,7 +107,7 @@ const createChildNode = async () => {
   const childPath = props.node.path === '/' ? `/${newChildName.value.trim()}` : `${props.node.path}/${newChildName.value.trim()}`;
   const data = Array.from(new TextEncoder().encode(newChildData.value));
   try {
-    await zkApi.createNode(childPath, data);
+    await zkApi.createNode(props.connectionUuid, childPath, data);
     await logsStore.addLog(props.connectionUuid, 'CREATE', `Created node ${childPath}`);
     await zkTreeStore.onNodeCreated(props.connectionUuid, props.node.path);
     showCreateDialog.value = false;
@@ -125,7 +125,7 @@ const openDeleteDialog = () => {
 const confirmDelete = async () => {
   isDeleting.value = true;
   try {
-    await zkApi.deleteNode(props.node.path);
+    await zkApi.deleteNode(props.connectionUuid, props.node.path);
     await logsStore.addLog(props.connectionUuid, 'DELETE', `Deleted node ${props.node.path}`);
     znodeTabsStore.delTab(props.node.path);
     await zkTreeStore.onNodeDeleted(props.connectionUuid, props.node.path);
@@ -237,3 +237,7 @@ const confirmDelete = async () => {
     </Dialog>
   </div>
 </template>
+
+<style scoped>
+.fade-in { animation: fadeIn 0.1s ease-out; }
+</style>

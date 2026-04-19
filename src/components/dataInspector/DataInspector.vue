@@ -4,6 +4,7 @@ import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { zkApi } from '../../api/zk';
+import { RefreshCw } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
@@ -52,6 +53,7 @@ const dataFormat = ref<SerializationFormat>('text');
 const editValue = ref('');
 const isSubmitting = ref(false);
 const errorMessage = ref('');
+const originalValue = ref<string | null>(null);
 
 // Create child dialog
 const showCreateDialog = ref(false);
@@ -82,9 +84,10 @@ const formatTimestamp = (value: number) => {
 watch(
   () => [props.tab.znodeData, dataFormat.value],
   () => {
-    const result = formatBytes(props.tab.znodeData, dataFormat.value);
+    const result = formatBytes(props.tab.znodeData, dataFormat.value as any);
     if (result.success && result.data !== undefined) {
       editValue.value = result.data;
+      originalValue.value = result.data;
       errorMessage.value = '';
     } else {
       errorMessage.value = result.error || 'Failed to format data';
@@ -93,13 +96,21 @@ watch(
   { immediate: true },
 );
 
+// Track dirtiness
+watch(editValue, (newVal) => {
+  if (originalValue.value !== null) {
+    znodeTabsStore.setDirty(props.tab.path, newVal !== originalValue.value);
+  }
+});
+
 // Also update when tab changes (different node selected)
 watch(
   () => props.tab.path,
   () => {
-    const result = formatBytes(props.tab.znodeData, dataFormat.value);
+    const result = formatBytes(props.tab.znodeData, dataFormat.value as any);
     if (result.success && result.data !== undefined) {
       editValue.value = result.data;
+      originalValue.value = result.data;
       errorMessage.value = '';
     }
   },
@@ -126,7 +137,7 @@ const refresh = async () => {
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
-    const details = await zkApi.getDetails(props.tab.path);
+    const details = await zkApi.getDetails(props.tab.connectionUuid, props.tab.path);
     znodeTabsStore.updateTab(props.tab.path, {
       znodeData: details.data,
       stat: details.stat,
@@ -152,12 +163,13 @@ const save = async () => {
       return;
     }
 
-    const details = await zkApi.setData(props.tab.path, result.bytes);
+    const details = await zkApi.setData(props.tab.connectionUuid, props.tab.path, result.bytes);
     znodeTabsStore.updateTab(props.tab.path, {
       znodeData: details.data,
       stat: details.stat,
       acl: details.acl,
     });
+    znodeTabsStore.setDirty(props.tab.path, false);
     await logsStore.addLog('current', 'SET_DATA', `Updated data of ${props.tab.path}`);
     showToast.success(t('node.saveSuccess'));
   } catch (error: unknown) {
@@ -172,7 +184,7 @@ const removeNode = async () => {
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
-    await zkApi.deleteNode(props.tab.path);
+    await zkApi.deleteNode(props.tab.connectionUuid, props.tab.path);
     await logsStore.addLog('current', 'DELETE', `Deleted node ${props.tab.path}`);
     await zkTreeStore.onNodeDeleted(props.tab.connectionUuid, props.tab.path);
     znodeTabsStore.delTab(props.tab.path);
@@ -210,7 +222,7 @@ const createChildNode = async () => {
   try {
     const encoder = new TextEncoder();
     const data = Array.from(encoder.encode(newNodeData.value));
-    await zkApi.createNode(childPath, data);
+    await zkApi.createNode(props.tab.connectionUuid, childPath, data);
     await logsStore.addLog('current', 'CREATE', `Created node ${childPath}`);
     await zkTreeStore.onNodeCreated(props.tab.connectionUuid, props.tab.path);
     showCreateDialog.value = false;
@@ -243,8 +255,8 @@ const saveAcl = async () => {
     const newAclList = [...props.tab.acl.filter(a =>
       !(a.scheme === editingAcl.value!.scheme && a.id === editingAcl.value!.id),
     ), editingAcl.value];
-    await zkApi.setAcl(props.tab.path, newAclList);
-    const details = await zkApi.getDetails(props.tab.path);
+    await zkApi.setAcl(props.tab.connectionUuid, props.tab.path, newAclList);
+    const details = await zkApi.getDetails(props.tab.connectionUuid, props.tab.path);
     znodeTabsStore.updateTab(props.tab.path, { acl: details.acl });
     await logsStore.addLog('current', 'SET_ACL', `Updated ACL of ${props.tab.path}`);
     showAclDialog.value = false;
@@ -263,8 +275,8 @@ const deleteAcl = async (acl: ZkAclEntry) => {
     const newAclList = props.tab.acl.filter(a =>
       !(a.scheme === acl.scheme && a.id === acl.id),
     );
-    await zkApi.setAcl(props.tab.path, newAclList);
-    const details = await zkApi.getDetails(props.tab.path);
+    await zkApi.setAcl(props.tab.connectionUuid, props.tab.path, newAclList);
+    const details = await zkApi.getDetails(props.tab.connectionUuid, props.tab.path);
     znodeTabsStore.updateTab(props.tab.path, { acl: details.acl });
     await logsStore.addLog('current', 'DELETE_ACL', `Deleted ACL from ${props.tab.path}`);
   } catch (error) {
@@ -276,73 +288,70 @@ const deleteAcl = async (acl: ZkAclEntry) => {
 
 const PERMISSION_OPTIONS = ['READ', 'WRITE', 'CREATE', 'DELETE', 'ADMIN', 'ALL'];
 const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
+
+const getNodeName = (path: string) => {
+  if (path === '/') return '/';
+  const parts = path.split('/');
+  return parts[parts.length - 1];
+};
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <!-- Toolbar -->
-    <div class="flex items-center gap-2 mb-2 p-2 bg-background rounded">
-      <Input
-        :model-value="tab.path"
-        class="max-w-xs"
-        readonly
-      />
-      <Button
-        variant="outline"
-        size="sm"
-        :disabled="isSubmitting"
-        @click="openCreateDialog"
-      >
-        {{ t('node.createChild') }}
-      </Button>
-      <Button
-        variant="destructive"
-        size="sm"
-        :disabled="isSubmitting"
-        @click="showDeleteDialog = true"
-      >
-        {{ t('node.delete') }}
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        :disabled="isSubmitting"
-        @click="refresh"
-      >
-        {{ t('tabs.refresh') }}
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        @click="locateInTree"
-      >
-        {{ t('tabs.locate') }}
-      </Button>
+  <div class="h-full flex flex-col bg-background">
+    <!-- Header Area -->
+    <div class="flex items-center justify-between p-4 bg-sidebar-accent/10 border-b border-sidebar-border transition-colors">
+      <div class="flex flex-col gap-1 min-w-0">
+        <h2 class="text-base font-semibold tracking-tight truncate flex items-center gap-2">
+          {{ getNodeName(tab.path) }}
+          <span class="text-xs font-medium text-muted-foreground px-1.5 py-0.5 rounded-md bg-sidebar-accent border border-sidebar-border/50">Node</span>
+        </h2>
+        <div class="text-xs text-muted-foreground font-mono truncate flex items-center gap-1.5 opacity-80" title="Full Path">
+          <span class="text-primary/70 select-none font-bold">PATH</span> {{ tab.path }}
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <Button variant="outline" size="sm" :disabled="isSubmitting" @click="refresh" class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border">
+          <RefreshCw class="size-3 mr-1.5" /> {{ t('tabs.refresh') }}
+        </Button>
+        <Button variant="outline" size="sm" @click="locateInTree" class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate-fixed size-3 mr-1.5"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg>
+          {{ t('tabs.locate') }}
+        </Button>
+        <div class="w-[1px] h-4 bg-sidebar-border mx-1"></div>
+        <Button variant="ghost" size="icon" :disabled="isSubmitting" @click="openCreateDialog" class="h-7 w-7 text-muted-foreground hover:text-foreground">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus size-4"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        </Button>
+        <Button variant="ghost" size="icon" :disabled="isSubmitting" @click="showDeleteDialog = true" class="h-7 w-7 text-muted-foreground hover:text-destructive">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2 size-4"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+        </Button>
+      </div>
     </div>
 
     <!-- Tabs -->
     <Tabs
       default-value="Data"
-      class="flex-1 bg-background rounded p-2 overflow-hidden flex flex-col"
+      class="flex-1 overflow-hidden flex flex-col"
     >
-      <TabsList class="w-full">
-        <TabsTrigger value="Data">
-          {{ t('tabs.data') }}
-        </TabsTrigger>
-        <TabsTrigger value="ACL">
-          {{ t('tabs.acl') }}
-        </TabsTrigger>
-        <TabsTrigger value="Meta">
-          {{ t('tabs.meta') }}
-        </TabsTrigger>
-      </TabsList>
+      <div class="px-4 pt-3 border-b border-sidebar-border/50">
+        <TabsList class="w-[300px] h-9 grid grid-cols-3 bg-sidebar-accent/50 p-1">
+          <TabsTrigger value="Data" class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            {{ t('tabs.data') }}
+          </TabsTrigger>
+          <TabsTrigger value="ACL" class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            {{ t('tabs.acl') }}
+          </TabsTrigger>
+          <TabsTrigger value="Meta" class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            {{ t('tabs.meta') }}
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
       <!-- Data Tab -->
       <TabsContent
         value="Data"
-        class="flex flex-col flex-1 min-h-0"
+        class="flex flex-col flex-1 min-h-0 bg-background outline-none m-0"
       >
-        <div class="flex items-center gap-2 p-2 shrink-0">
+        <div class="flex items-center gap-2 p-2 px-4 shrink-0 bg-sidebar-accent/5 border-b border-sidebar-border/50">
           <Button
             size="sm"
             :disabled="isSubmitting"
@@ -474,7 +483,7 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
         </DialogHeader>
         <div class="space-y-4 py-4">
           <div>
-            <Label for="nodeName">{{ t('createNode.nodeName') }}</Label>
+            <Label for="nodeName" class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('createNode.nodeName') }}</Label>
             <Input
               id="nodeName"
               v-model="newNodeName"
@@ -482,7 +491,7 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
             />
           </div>
           <div>
-            <Label for="nodeData">{{ t('createNode.nodeData') }}</Label>
+            <Label for="nodeData" class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('createNode.nodeData') }}</Label>
             <Textarea
               id="nodeData"
               v-model="newNodeData"
@@ -525,7 +534,7 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
           class="space-y-3 py-4"
         >
           <div>
-            <Label>{{ t('acl.scheme') }}</Label>
+            <Label class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('acl.scheme') }}</Label>
             <Select v-model="editingAcl.scheme">
               <SelectTrigger>
                 <SelectValue />
@@ -544,11 +553,11 @@ const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
             </Select>
           </div>
           <div>
-            <Label>{{ t('acl.id') }}</Label>
+            <Label class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('acl.id') }}</Label>
             <Input v-model="editingAcl.id" />
           </div>
           <div>
-            <Label>{{ t('acl.permission') }}</Label>
+            <Label class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('acl.permission') }}</Label>
             <Select v-model="editingAcl.permission">
               <SelectTrigger>
                 <SelectValue />
