@@ -57,6 +57,13 @@ export default {
     id: '标识',
     permission: '权限',
     confirmDelete: '确定删除此 ACL 吗？',
+    schemeHint: {
+      world: 'id 必须是 anyone',
+      digest: 'id 格式: username:password',
+      auth: '需要先在 ZK 会话中认证该用户',
+    },
+    invalidWorldId: 'world scheme 的 id 必须是 anyone',
+    invalidDigestId: 'digest scheme 的 id 格式必须是 username:password',
   },
   settings: {
     title: '设置',

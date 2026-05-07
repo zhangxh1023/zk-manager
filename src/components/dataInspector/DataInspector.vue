@@ -63,6 +63,8 @@ const newNodeData = ref('');
 // ACL editing
 const editingAcl = ref<ZkAclEntry | null>(null);
 const showAclDialog = ref(false);
+const showAclDeleteDialog = ref(false);
+const aclToDelete = ref<ZkAclEntry | null>(null);
 
 // Delete dialog
 const showDeleteDialog = ref(false);
@@ -267,18 +269,25 @@ const saveAcl = async () => {
   }
 };
 
-const deleteAcl = async (acl: ZkAclEntry) => {
-  if (!window.confirm(t('acl.confirmDelete'))) return;
+const confirmDeleteAcl = (acl: ZkAclEntry) => {
+  aclToDelete.value = acl;
+  showAclDeleteDialog.value = true;
+};
+
+const deleteAcl = async () => {
+  if (!aclToDelete.value) return;
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
     const newAclList = props.tab.acl.filter(a =>
-      !(a.scheme === acl.scheme && a.id === acl.id),
+      !(a.scheme === aclToDelete.value!.scheme && a.id === aclToDelete.value!.id),
     );
     await zkApi.setAcl(props.tab.connectionUuid, props.tab.path, newAclList);
     const details = await zkApi.getDetails(props.tab.connectionUuid, props.tab.path);
     znodeTabsStore.updateTab(props.tab.path, { acl: details.acl });
     await logsStore.addLog('current', 'DELETE_ACL', `Deleted ACL from ${props.tab.path}`);
+    showAclDeleteDialog.value = false;
+    aclToDelete.value = null;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -288,6 +297,30 @@ const deleteAcl = async (acl: ZkAclEntry) => {
 
 const PERMISSION_OPTIONS = ['READ', 'WRITE', 'CREATE', 'DELETE', 'ADMIN', 'ALL'];
 const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
+
+const schemeHint = computed(() => {
+  if (!editingAcl.value) return '';
+  switch (editingAcl.value.scheme) {
+    case 'world': return t('acl.schemeHint.world');
+    case 'digest': return t('acl.schemeHint.digest');
+    case 'auth': return t('acl.schemeHint.auth');
+    default: return '';
+  }
+});
+
+const validateAndSaveAcl = async () => {
+  if (!editingAcl.value) return;
+  const { scheme, id } = editingAcl.value;
+  if (scheme === 'world' && id !== 'anyone') {
+    errorMessage.value = t('acl.invalidWorldId');
+    return;
+  }
+  if (scheme === 'digest' && !id.includes(':')) {
+    errorMessage.value = t('acl.invalidDigestId');
+    return;
+  }
+  await saveAcl();
+};
 
 const getNodeName = (path: string) => {
   if (path === '/') return '/';
@@ -547,7 +580,7 @@ const getNodeName = (path: string) => {
                 <Button
                   variant="destructive"
                   size="sm"
-                  @click="deleteAcl(acl)"
+                  @click="confirmDeleteAcl(acl)"
                 >
                   {{ t('acl.delete') }}
                 </Button>
@@ -667,6 +700,12 @@ const getNodeName = (path: string) => {
           <div>
             <Label class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('acl.id') }}</Label>
             <Input v-model="editingAcl.id" />
+            <p
+              v-if="schemeHint"
+              class="text-xs text-muted-foreground mt-1"
+            >
+              {{ schemeHint }}
+            </p>
           </div>
           <div>
             <Label class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('acl.permission') }}</Label>
@@ -697,7 +736,7 @@ const getNodeName = (path: string) => {
           </Button>
           <Button
             :disabled="isSubmitting"
-            @click="saveAcl"
+            @click="validateAndSaveAcl"
           >
             {{ t('connection.save') }}
           </Button>
@@ -708,6 +747,37 @@ const getNodeName = (path: string) => {
         >
           {{ errorMessage }}
         </p>
+      </DialogContent>
+    </Dialog>
+
+    <!-- ACL Delete Confirmation Dialog -->
+    <Dialog v-model:open="showAclDeleteDialog">
+      <DialogContent class="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{{ t('acl.delete') }}</DialogTitle>
+        </DialogHeader>
+        <div class="py-4">
+          <p class="text-sm text-muted-foreground">
+            {{ t('acl.confirmDelete') }}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            @click="showAclDeleteDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            :disabled="isSubmitting"
+            @click="deleteAcl"
+          >
+            {{ t('acl.delete') }}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
 

@@ -57,6 +57,13 @@ export default {
     id: 'id',
     permission: 'permission',
     confirmDelete: 'Are you sure you want to delete this ACL?',
+    schemeHint: {
+      world: 'id must be "anyone"',
+      digest: 'id format: username:password',
+      auth: 'User must be authenticated in ZK session first',
+    },
+    invalidWorldId: 'world scheme id must be "anyone"',
+    invalidDigestId: 'digest scheme id format must be username:password',
   },
   settings: {
     title: 'Settings',

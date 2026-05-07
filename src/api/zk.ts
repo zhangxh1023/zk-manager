@@ -36,7 +36,7 @@ export interface CommandArgs {
   [Command.set_data]: { connectionUuid: string; path: string; data: number[] };
   [Command.delete_node]: { connectionUuid: string; path: string };
   [Command.create_node]: { connectionUuid: string; path: string; data: number[] };
-  [Command.set_acl]: { connectionUuid: string; path: string; acl_entries: ZkAclEntry[] };
+  [Command.set_acl]: { connectionUuid: string; path: string; aclEntries: ZkAclEntry[] };
 }
 
 export interface CommandReturns {
@@ -93,5 +93,5 @@ export const zkApi = {
   createNode: (connectionUuid: string, path: string, data: number[] = []) => invoke(Command.create_node, { connectionUuid, path, data }),
   deleteNode: (connectionUuid: string, path: string) => invoke(Command.delete_node, { connectionUuid, path }),
   getAcl: (connectionUuid: string, path: string) => invoke(Command.get_acl, { connectionUuid, path }),
-  setAcl: (connectionUuid: string, path: string, aclEntries: ZkAclEntry[]) => invoke(Command.set_acl, { connectionUuid, path, acl_entries: aclEntries }),
+  setAcl: (connectionUuid: string, path: string, aclEntries: ZkAclEntry[]) => invoke(Command.set_acl, { connectionUuid, path, aclEntries }),
 };
