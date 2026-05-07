@@ -58,13 +58,16 @@ const getTabName = (path: string) => {
                 @click="setActive(tab.path)"
                 @dblclick="makePermanent(tab.path, $event)"
               >
-                <FileText class="w-3.5 h-3.5 shrink-0" :class="tab.isActive ? 'text-primary' : 'text-muted-foreground/70'" />
+                <FileText
+                  class="w-3.5 h-3.5 shrink-0"
+                  :class="tab.isActive ? 'text-primary' : 'text-muted-foreground/70'"
+                />
                 <span class="truncate max-w-24 font-medium">{{ getTabName(tab.path) }}</span>
                 <div class="ml-1 relative w-4 h-4 flex items-center justify-center shrink-0">
                   <div
                     v-if="tab.isDirty"
                     class="w-2 h-2 rounded-full bg-blue-500 absolute transition-opacity group-hover:opacity-0"
-                  ></div>
+                  />
                   <button
                     class="p-0.5 rounded-sm hover:bg-muted/80 absolute transition-opacity"
                     :class="[

@@ -84,7 +84,7 @@ const formatTimestamp = (value: number) => {
 watch(
   () => [props.tab.znodeData, dataFormat.value],
   () => {
-    const result = formatBytes(props.tab.znodeData, dataFormat.value as any);
+    const result = formatBytes(props.tab.znodeData, dataFormat.value);
     if (result.success && result.data !== undefined) {
       editValue.value = result.data;
       originalValue.value = result.data;
@@ -107,7 +107,7 @@ watch(editValue, (newVal) => {
 watch(
   () => props.tab.path,
   () => {
-    const result = formatBytes(props.tab.znodeData, dataFormat.value as any);
+    const result = formatBytes(props.tab.znodeData, dataFormat.value);
     if (result.success && result.data !== undefined) {
       editValue.value = result.data;
       originalValue.value = result.data;
@@ -305,24 +305,121 @@ const getNodeName = (path: string) => {
           {{ getNodeName(tab.path) }}
           <span class="text-xs font-medium text-muted-foreground px-1.5 py-0.5 rounded-md bg-sidebar-accent border border-sidebar-border/50">Node</span>
         </h2>
-        <div class="text-xs text-muted-foreground font-mono truncate flex items-center gap-1.5 opacity-80" title="Full Path">
+        <div
+          class="text-xs text-muted-foreground font-mono truncate flex items-center gap-1.5 opacity-80"
+          title="Full Path"
+        >
           <span class="text-primary/70 select-none font-bold">PATH</span> {{ tab.path }}
         </div>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
-        <Button variant="outline" size="sm" :disabled="isSubmitting" @click="refresh" class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border">
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="isSubmitting"
+          class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border"
+          @click="refresh"
+        >
           <RefreshCw class="size-3 mr-1.5" /> {{ t('tabs.refresh') }}
         </Button>
-        <Button variant="outline" size="sm" @click="locateInTree" class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-locate-fixed size-3 mr-1.5"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg>
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border"
+          @click="locateInTree"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="lucide lucide-locate-fixed size-3 mr-1.5"
+          ><line
+            x1="2"
+            x2="5"
+            y1="12"
+            y2="12"
+          /><line
+            x1="19"
+            x2="22"
+            y1="12"
+            y2="12"
+          /><line
+            x1="12"
+            x2="12"
+            y1="2"
+            y2="5"
+          /><line
+            x1="12"
+            x2="12"
+            y1="19"
+            y2="22"
+          /><circle
+            cx="12"
+            cy="12"
+            r="7"
+          /><circle
+            cx="12"
+            cy="12"
+            r="3"
+          /></svg>
           {{ t('tabs.locate') }}
         </Button>
-        <div class="w-[1px] h-4 bg-sidebar-border mx-1"></div>
-        <Button variant="ghost" size="icon" :disabled="isSubmitting" @click="openCreateDialog" class="h-7 w-7 text-muted-foreground hover:text-foreground">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus size-4"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        <div class="w-[1px] h-4 bg-sidebar-border mx-1" />
+        <Button
+          variant="ghost"
+          size="icon"
+          :disabled="isSubmitting"
+          class="h-7 w-7 text-muted-foreground hover:text-foreground"
+          @click="openCreateDialog"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="lucide lucide-plus size-4"
+          ><path d="M5 12h14" /><path d="M12 5v14" /></svg>
         </Button>
-        <Button variant="ghost" size="icon" :disabled="isSubmitting" @click="showDeleteDialog = true" class="h-7 w-7 text-muted-foreground hover:text-destructive">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2 size-4"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+        <Button
+          variant="ghost"
+          size="icon"
+          :disabled="isSubmitting"
+          class="h-7 w-7 text-muted-foreground hover:text-destructive"
+          @click="showDeleteDialog = true"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="lucide lucide-trash-2 size-4"
+          ><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line
+            x1="10"
+            x2="10"
+            y1="11"
+            y2="17"
+          /><line
+            x1="14"
+            x2="14"
+            y1="11"
+            y2="17"
+          /></svg>
         </Button>
       </div>
     </div>
@@ -334,13 +431,22 @@ const getNodeName = (path: string) => {
     >
       <div class="px-4 pt-3 border-b border-sidebar-border/50">
         <TabsList class="w-[300px] h-9 grid grid-cols-3 bg-sidebar-accent/50 p-1">
-          <TabsTrigger value="Data" class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+          <TabsTrigger
+            value="Data"
+            class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+          >
             {{ t('tabs.data') }}
           </TabsTrigger>
-          <TabsTrigger value="ACL" class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+          <TabsTrigger
+            value="ACL"
+            class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+          >
             {{ t('tabs.acl') }}
           </TabsTrigger>
-          <TabsTrigger value="Meta" class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+          <TabsTrigger
+            value="Meta"
+            class="text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+          >
             {{ t('tabs.meta') }}
           </TabsTrigger>
         </TabsList>
@@ -483,7 +589,10 @@ const getNodeName = (path: string) => {
         </DialogHeader>
         <div class="space-y-4 py-4">
           <div>
-            <Label for="nodeName" class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('createNode.nodeName') }}</Label>
+            <Label
+              for="nodeName"
+              class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
+            >{{ t('createNode.nodeName') }}</Label>
             <Input
               id="nodeName"
               v-model="newNodeName"
@@ -491,7 +600,10 @@ const getNodeName = (path: string) => {
             />
           </div>
           <div>
-            <Label for="nodeData" class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('createNode.nodeData') }}</Label>
+            <Label
+              for="nodeData"
+              class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
+            >{{ t('createNode.nodeData') }}</Label>
             <Textarea
               id="nodeData"
               v-model="newNodeData"

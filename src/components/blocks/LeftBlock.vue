@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { ChevronRight, ChevronDown, Plus, Settings, ClipboardClock, Database, Folder, File, Trash2, Edit2, Zap } from 'lucide-vue-next';
+import { ChevronRight, ChevronDown, Settings, ClipboardClock, Database } from 'lucide-vue-next';
 import ZkList from '../zkTree/ZkList.vue';
-import { useConnectionsStore } from '../../stores/connections';
+import { useConnectionsStore, type Connection } from '../../stores/connections';
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { zkApi } from '../../api/zk';
 import { useLogsStore } from '../../stores/logs';
@@ -25,12 +25,12 @@ const znodeTabsStore = useZnodeTabsStore();
 // Connection Dialog State
 const showConnectionDialog = ref(false);
 const currentDialogMode = ref<'add' | 'edit'>('add');
-const activeConnectionToEdit = ref<any>(null);
+const activeConnectionToEdit = ref<Connection | null>(null);
 
 // Open AppMenus triggers
 const appMenusRef = ref<InstanceType<typeof AppMenus> | null>(null);
 
-const connect = async (conn: any) => {
+const connect = async (conn: Connection) => {
   try {
     await zkApi.connect(
       conn.uuid,
@@ -56,7 +56,7 @@ const connect = async (conn: any) => {
   }
 };
 
-const disconnect = async (conn: any) => {
+const disconnect = async (conn: Connection) => {
   try {
     await zkApi.disconnect(conn.uuid);
   } catch (err) {
@@ -68,7 +68,7 @@ const disconnect = async (conn: any) => {
   await logsStore.addLog(conn.name || conn.uuid, 'DISCONNECT', `Disconnected from ${conn.url}`);
 };
 
-const toggleConnection = async (conn: any) => {
+const toggleConnection = async (conn: Connection) => {
   if (connectingSet.value.has(conn.uuid)) return;
 
   if (connectedSet.value.has(conn.uuid)) {
@@ -101,19 +101,19 @@ const openAddDialog = () => {
   showConnectionDialog.value = true;
 };
 
-const openEditDialog = (conn: any, event?: Event) => {
+const openEditDialog = (conn: Connection, event?: Event) => {
   if (event) event.stopPropagation();
   currentDialogMode.value = 'edit';
   activeConnectionToEdit.value = { ...conn };
   showConnectionDialog.value = true;
 };
 
-const deleteConnection = async (conn: any, event?: Event) => {
+const deleteConnection = async (conn: Connection, event?: Event) => {
   if (event) event.stopPropagation();
   if (!window.confirm(t('connection.confirmDelete'))) return;
-  
+
   if (connectedSet.value.has(conn.uuid)) {
-    try { await zkApi.disconnect(conn.uuid); } catch (e) {}
+    try { await zkApi.disconnect(conn.uuid); } catch { /* ignore */ }
   }
   connectedSet.value.delete(conn.uuid);
   expandedSet.value.delete(conn.uuid);
@@ -123,13 +123,13 @@ const deleteConnection = async (conn: any, event?: Event) => {
   await logsStore.addLog(conn.name || conn.uuid, 'DELETE_CONNECTION', `Deleted connection ${conn.name}`);
 };
 
-const onDialogSave = async (connData: any) => {
+const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string }) => {
   if (currentDialogMode.value === 'add') {
     const { v4: uuidv4 } = await import('uuid');
     connData.uuid = uuidv4();
-    await connectionsStore.addConnection(connData);
+    await connectionsStore.addConnection(connData as Connection);
   } else {
-    await connectionsStore.updateConnection(connData);
+    await connectionsStore.updateConnection(connData as Connection);
   }
 };
 </script>
@@ -141,11 +141,18 @@ const onDialogSave = async (connData: any) => {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="icon" @click="openAddDialog" class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground">
+            <Button
+              variant="ghost"
+              size="icon"
+              class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground"
+              @click="openAddDialog"
+            >
               <Database class="size-5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="right"><p>{{ t('app.newConnection') }}</p></TooltipContent>
+          <TooltipContent side="right">
+            <p>{{ t('app.newConnection') }}</p>
+          </TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -154,22 +161,36 @@ const onDialogSave = async (connData: any) => {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon" @click="appMenusRef?.openSettings()" class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground">
+              <Button
+                variant="ghost"
+                size="icon"
+                class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground"
+                @click="appMenusRef?.openSettings()"
+              >
                 <Settings class="size-[22px]" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right"><p>{{ t('app.settings') }}</p></TooltipContent>
+            <TooltipContent side="right">
+              <p>{{ t('app.settings') }}</p>
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger as-child>
-              <Button variant="ghost" size="icon" @click="appMenusRef?.openLogs()" class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground">
+              <Button
+                variant="ghost"
+                size="icon"
+                class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground"
+                @click="appMenusRef?.openLogs()"
+              >
                 <ClipboardClock class="size-[22px]" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right"><p>{{ t('app.logs') }}</p></TooltipContent>
+            <TooltipContent side="right">
+              <p>{{ t('app.logs') }}</p>
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
@@ -178,7 +199,7 @@ const onDialogSave = async (connData: any) => {
     <!-- Main Sidebar (Connections list) -->
     <div class="flex-1 flex flex-col min-w-0 mac-sidebar">
       <div class="h-12 border-b border-sidebar-border flex items-center px-4 justify-between shrink-0">
-         <span class="text-xs font-semibold tracking-wider text-muted-foreground">CONNECTIONS</span>
+        <span class="text-xs font-semibold tracking-wider text-muted-foreground">CONNECTIONS</span>
       </div>
       
       <div class="flex-1 overflow-y-auto px-2 py-3 space-y-1">
@@ -200,10 +221,36 @@ const onDialogSave = async (connData: any) => {
                 />
                 
                 <div class="relative shrink-0 flex items-center justify-center size-3.5">
-                  <svg v-if="isConnecting(conn.uuid)" class="animate-spin text-muted-foreground size-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                  <Database v-else-if="!isConnected(conn.uuid)" class="w-3.5 h-3.5 text-muted-foreground/70" />
-                  <Database v-else class="w-3.5 h-3.5 text-green-500" />
-                  <div v-if="isConnected(conn.uuid) && !isConnecting(conn.uuid)" class="absolute -bottom-0.5 -right-0.5 w-[6px] h-[6px] bg-green-500 rounded-full border border-background"></div>
+                  <svg
+                    v-if="isConnecting(conn.uuid)"
+                    class="animate-spin text-muted-foreground size-3.5"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  ><circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  /><path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  /></svg>
+                  <Database
+                    v-else-if="!isConnected(conn.uuid)"
+                    class="w-3.5 h-3.5 text-muted-foreground/70"
+                  />
+                  <Database
+                    v-else
+                    class="w-3.5 h-3.5 text-green-500"
+                  />
+                  <div
+                    v-if="isConnected(conn.uuid) && !isConnecting(conn.uuid)"
+                    class="absolute -bottom-0.5 -right-0.5 w-[6px] h-[6px] bg-green-500 rounded-full border border-background"
+                  />
                 </div>
                 
                 <span class="truncate font-medium flex-1 text-sidebar-foreground">{{ conn.name }}</span>
@@ -248,7 +295,10 @@ const onDialogSave = async (connData: any) => {
       @save="onDialogSave"
     />
     
-    <AppMenus ref="appMenusRef" class="hidden" />
+    <AppMenus
+      ref="appMenusRef"
+      class="hidden"
+    />
   </div>
 </template>
 

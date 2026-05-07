@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 
 import {
   Dialog,
@@ -9,9 +9,7 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import { Label } from '../ui/label';
-import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { useSettingsStore } from '../../stores/settings';
 import { useLogsStore } from '../../stores/logs';
 import i18n from '../../i18n';
@@ -22,47 +20,47 @@ const { t } = i18n.global;
 // Settings
 const settingsStore = useSettingsStore();
 const showSettings = ref(false);
+// 标记是否是用户主动保存，用于区分保存和关闭
+const isSaving = ref(false);
 // 保存打开对话框时的原始设置，用于取消时恢复
 const savedSettings = ref({ ...settingsStore.settings });
-// 表单绑定的临时副本
-const tempSettings = ref({ ...settingsStore.settings });
 
 const VALID_SCALE_OPTIONS = [0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];
 
 const openSettings = () => {
-  // 保存当前设置
+  // 保存当前设置，用于取消时回滚
   savedSettings.value = { ...settingsStore.settings };
-  // 初始化表单副本，确保 scale 是有效值
-  const currentScale = settingsStore.settings.scale;
-  tempSettings.value = {
-    ...settingsStore.settings,
-    scale: VALID_SCALE_OPTIONS.includes(currentScale) ? currentScale : 1.0,
-  };
+  // 确保 scale 是有效值
+  if (!VALID_SCALE_OPTIONS.includes(settingsStore.settings.scale)) {
+    settingsStore.settings.scale = 1.0;
+  }
+  isSaving.value = false;
   showSettings.value = true;
 };
 
 const cancelSettings = () => {
-  // 恢复原始设置（取消时不做任何应用）
-  settingsStore.settings.language = savedSettings.value.language;
-  settingsStore.settings.theme = savedSettings.value.theme;
-  settingsStore.settings.scale = savedSettings.value.scale;
-  settingsStore.applyScale();
-  i18n.global.locale.value = savedSettings.value.language;
   showSettings.value = false;
 };
 
 const saveSettings = async () => {
-  // 应用所有设置
-  settingsStore.settings.language = tempSettings.value.language;
-  settingsStore.settings.theme = tempSettings.value.theme;
-  settingsStore.settings.scale = tempSettings.value.scale;
-  settingsStore.applyScale();
-  i18n.global.locale.value = tempSettings.value.language;
+  // 标记为保存状态，防止 watch 回滚
+  isSaving.value = true;
+  // 持久化当前设置到数据库
   await settingsStore.save();
-  // 更新savedSettings以便下次取消时能回滚到正确位置
+  // 更新 savedSettings 以便下次取消时能回滚到正确位置
   savedSettings.value = { ...settingsStore.settings };
   showSettings.value = false;
 };
+
+// 监听对话框关闭，如果不是主动保存则回滚设置
+watch(showSettings, (newVal) => {
+  if (!newVal && !isSaving.value) {
+    // 对话框被关闭且不是保存操作，回滚设置
+    settingsStore.settings.language = savedSettings.value.language;
+    settingsStore.settings.theme = savedSettings.value.theme;
+    settingsStore.settings.scale = savedSettings.value.scale;
+  }
+});
 
 // Logs
 const logsStore = useLogsStore();
@@ -110,7 +108,6 @@ defineExpose({
 
 <template>
   <div class="hidden">
-
     <!-- Settings Dialog -->
     <Dialog v-model:open="showSettings">
       <DialogContent class="max-w-sm">
@@ -125,7 +122,7 @@ defineExpose({
             >{{ t('settings.language') }}</Label>
             <select
               id="lang"
-              v-model="tempSettings.language"
+              v-model="settingsStore.settings.language"
               class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
               <option value="en">
@@ -143,7 +140,7 @@ defineExpose({
             >{{ t('settings.theme') }}</Label>
             <select
               id="theme"
-              v-model="tempSettings.theme"
+              v-model="settingsStore.settings.theme"
               class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
               <option value="light">
@@ -164,7 +161,7 @@ defineExpose({
             >{{ t('settings.scale') }}</Label>
             <select
               id="scale"
-              v-model="tempSettings.scale"
+              v-model="settingsStore.settings.scale"
               class="flex h-8 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
               <option :value="0.8">
