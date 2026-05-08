@@ -41,6 +41,9 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 - [x] UI scaling (80% - 200%)
 - [x] Chinese/English language toggle
 
+#### Others
+- [x] Node data monitoring (Watcher)
+
 ### Incomplete
 
 #### Connection Management
@@ -58,7 +61,6 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 - [ ] Batch ACL modification
 
 #### Others
-- [ ] Node data monitoring (Watcher)
 - [ ] Node historical version viewing
 - [ ] Search functionality
 - [ ] Keyboard shortcuts
