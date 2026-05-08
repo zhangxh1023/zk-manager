@@ -31,6 +31,7 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
       existed.acl = newTab.acl;
       existed.isActive = true;
       existed.isTemporary = false; // Making it permanent when re-selected
+      existed.isDeleted = false;
       // Deactivate other tabs
       for (const item of znodeTabs.value) {
         if (item.path !== newTab.path) {
@@ -68,6 +69,7 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
       existingTab.stat = newTab.stat;
       existingTab.acl = newTab.acl;
       existingTab.isActive = true;
+      existingTab.isDeleted = false;
       // Keep existing isTemporary state (don't change it)
       // Deactivate other tabs
       for (const item of znodeTabs.value) {
@@ -89,6 +91,9 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
       existingTemporary.stat = newTab.stat;
       existingTemporary.acl = newTab.acl;
       existingTemporary.isActive = true;
+      existingTemporary.isDeleted = false;
+      existingTemporary.isDirty = false;
+      existingTemporary.isWatching = false;
       // Keep isTemporary = true
       // Deactivate other tabs
       for (const item of znodeTabs.value) {

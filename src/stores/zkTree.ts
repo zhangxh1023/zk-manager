@@ -37,7 +37,7 @@ export const useZkTreeStore = defineStore('zkTree', () => {
   const navigateTo = async (connectionUuid: string, path: string) => {
     const normalized = normalizePath(path);
     currentPaths.value[connectionUuid] = normalized;
-    await fetchChildren(connectionUuid, normalized);
+    await fetchChildren(connectionUuid, normalized, true);
   };
 
   // Navigate up one level

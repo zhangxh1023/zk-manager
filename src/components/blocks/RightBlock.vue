@@ -68,8 +68,8 @@ const getTabName = (path: string) => {
                 />
                 <span
                   class="truncate max-w-24 font-medium"
-                  :class="tab.isDeleted ? 'line-through text-muted-foreground' : ''"
-                >{{ tab.isDeleted ? '--' : getTabName(tab.path) }}</span>
+                  :class="tab.isDeleted ? 'line-through italic text-muted-foreground' : ''"
+                >{{ getTabName(tab.path) }}</span>
                 <div class="ml-1 relative w-4 h-4 flex items-center justify-center shrink-0">
                   <div
                     v-if="tab.isDirty"
