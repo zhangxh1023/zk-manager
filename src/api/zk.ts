@@ -12,6 +12,8 @@ export enum Command {
   delete_node = 'delete_node',
   create_node = 'create_node',
   set_acl = 'set_acl',
+  watch_node = 'watch_node',
+  unwatch_node = 'unwatch_node',
 }
 
 export interface CommandArgs {
@@ -37,6 +39,8 @@ export interface CommandArgs {
   [Command.delete_node]: { connectionUuid: string; path: string };
   [Command.create_node]: { connectionUuid: string; path: string; data: number[] };
   [Command.set_acl]: { connectionUuid: string; path: string; aclEntries: ZkAclEntry[] };
+  [Command.watch_node]: { connectionUuid: string; path: string };
+  [Command.unwatch_node]: { connectionUuid: string; path: string };
 }
 
 export interface CommandReturns {
@@ -50,6 +54,8 @@ export interface CommandReturns {
   [Command.delete_node]: string;
   [Command.create_node]: string;
   [Command.set_acl]: string;
+  [Command.watch_node]: string;
+  [Command.unwatch_node]: string;
 }
 
 async function invoke<K extends Command>(
@@ -94,4 +100,6 @@ export const zkApi = {
   deleteNode: (connectionUuid: string, path: string) => invoke(Command.delete_node, { connectionUuid, path }),
   getAcl: (connectionUuid: string, path: string) => invoke(Command.get_acl, { connectionUuid, path }),
   setAcl: (connectionUuid: string, path: string, aclEntries: ZkAclEntry[]) => invoke(Command.set_acl, { connectionUuid, path, aclEntries }),
+  watchNode: (connectionUuid: string, path: string) => invoke(Command.watch_node, { connectionUuid, path }),
+  unwatchNode: (connectionUuid: string, path: string) => invoke(Command.unwatch_node, { connectionUuid, path }),
 };

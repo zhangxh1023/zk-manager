@@ -39,6 +39,7 @@ export default {
     deleteSuccess: 'Node deleted successfully',
     deleteFailed: 'Failed to delete node',
     saveSuccess: 'Saved successfully',
+    deleted: 'Node has been deleted',
   },
   tabs: {
     data: 'Data',
@@ -48,6 +49,8 @@ export default {
     refresh: 'refresh',
     locate: 'Locate',
     selectNode: 'select a node to view its details',
+    watch: 'Watch',
+    unwatch: 'Unwatch',
   },
   acl: {
     add: 'Add ACL',

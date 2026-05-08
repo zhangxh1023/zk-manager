@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { zkApi } from '../../api/zk';
-import { RefreshCw } from 'lucide-vue-next';
+import { RefreshCw, Eye, EyeOff } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import { listen } from '@tauri-apps/api/event';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -27,7 +28,7 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import type { ZnodeTab } from '../../stores/znodeTabs';
-import type { ZkAclEntry } from '../../types/znodeDetails';
+import type { ZkAclEntry, ZkStat } from '../../types/znodeDetails';
 import { showToast } from '../../utils/toast';
 import { formatBytes, parseBytes, type SerializationFormat } from '../../utils/serializer';
 
@@ -68,6 +69,10 @@ const aclToDelete = ref<ZkAclEntry | null>(null);
 
 // Delete dialog
 const showDeleteDialog = ref(false);
+
+// Watch state
+const isWatching = ref(false);
+let unlistenWatch: (() => void) | null = null;
 
 const FORMAT_OPTIONS: { value: SerializationFormat; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -145,9 +150,14 @@ const refresh = async () => {
       stat: details.stat,
       acl: details.acl,
     });
+    znodeTabsStore.setDeleted(props.tab.path, false);
     await logsStore.addLog('current', 'REFRESH', `Refreshed node ${props.tab.path}`);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('NoNode')) {
+      znodeTabsStore.setDeleted(props.tab.path, true);
+    }
+    errorMessage.value = msg;
   } finally {
     isSubmitting.value = false;
   }
@@ -211,6 +221,117 @@ const openCreateDialog = () => {
 const locateInTree = async () => {
   await zkTreeStore.locateNode(props.tab.connectionUuid, props.tab.path);
 };
+
+// Watch toggle
+const toggleWatch = async () => {
+  if (isWatching.value) {
+    try {
+      await zkApi.unwatchNode(props.tab.connectionUuid, props.tab.path);
+    } catch { /* ignore */ }
+    isWatching.value = false;
+    znodeTabsStore.setWatching(props.tab.path, false);
+    if (unlistenWatch) {
+      unlistenWatch();
+      unlistenWatch = null;
+    }
+  } else {
+    try {
+      unlistenWatch = await listen('zk:node-changed', (event) => {
+        const payload = event.payload as {
+          connectionUuid: string;
+          path: string;
+          eventType: string;
+          data: number[] | null;
+          stat: object | null;
+          acl: object[] | null;
+        };
+        if (payload.connectionUuid !== props.tab.connectionUuid || payload.path !== props.tab.path) {
+          return;
+        }
+        if (payload.eventType === 'NodeDeleted') {
+          isWatching.value = false;
+          znodeTabsStore.setDeleted(props.tab.path, true);
+          znodeTabsStore.setWatching(props.tab.path, false);
+          showToast.error(t('node.deleted'));
+          if (unlistenWatch) {
+            unlistenWatch();
+            unlistenWatch = null;
+          }
+          return;
+        }
+        if (payload.data !== null && payload.stat !== null) {
+          znodeTabsStore.updateTab(props.tab.path, {
+            znodeData: payload.data,
+            stat: payload.stat as ZkStat,
+            acl: (payload.acl ?? []) as ZkAclEntry[],
+          });
+        }
+      });
+      await zkApi.watchNode(props.tab.connectionUuid, props.tab.path);
+      isWatching.value = true;
+      znodeTabsStore.setWatching(props.tab.path, true);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showToast.error(errorMsg);
+    }
+  }
+};
+
+// Setup watch listener on mount
+onMounted(async () => {
+  // If tab was previously watching, re-establish
+  if (props.tab.isWatching) {
+    try {
+      unlistenWatch = await listen('zk:node-changed', (event) => {
+        const payload = event.payload as {
+          connectionUuid: string;
+          path: string;
+          eventType: string;
+          data: number[] | null;
+          stat: object | null;
+          acl: object[] | null;
+        };
+        if (payload.connectionUuid !== props.tab.connectionUuid || payload.path !== props.tab.path) {
+          return;
+        }
+        if (payload.eventType === 'NodeDeleted') {
+          isWatching.value = false;
+          znodeTabsStore.setDeleted(props.tab.path, true);
+          znodeTabsStore.setWatching(props.tab.path, false);
+          showToast.error(t('node.deleted'));
+          if (unlistenWatch) {
+            unlistenWatch();
+            unlistenWatch = null;
+          }
+          return;
+        }
+        if (payload.data !== null && payload.stat !== null) {
+          znodeTabsStore.updateTab(props.tab.path, {
+            znodeData: payload.data,
+            stat: payload.stat as ZkStat,
+            acl: (payload.acl ?? []) as ZkAclEntry[],
+          });
+        }
+      });
+      await zkApi.watchNode(props.tab.connectionUuid, props.tab.path);
+      isWatching.value = true;
+    } catch {
+      znodeTabsStore.setWatching(props.tab.path, false);
+    }
+  }
+});
+
+// Cleanup on unmount
+onUnmounted(() => {
+  if (unlistenWatch) {
+    unlistenWatch();
+    unlistenWatch = null;
+  }
+  if (isWatching.value) {
+    zkApi.unwatchNode(props.tab.connectionUuid, props.tab.path).catch(() => {});
+    znodeTabsStore.setWatching(props.tab.path, false);
+  }
+});
 
 // Create child node
 const createChildNode = async () => {
@@ -349,11 +470,29 @@ const getNodeName = (path: string) => {
         <Button
           variant="outline"
           size="sm"
-          :disabled="isSubmitting"
+          :disabled="isSubmitting || tab.isDeleted"
           class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border"
           @click="refresh"
         >
           <RefreshCw class="size-3 mr-1.5" /> {{ t('tabs.refresh') }}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="tab.isDeleted"
+          class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border"
+          :class="isWatching ? 'bg-green-500/10 text-green-600 border-green-500/30 dark:text-green-400 dark:border-green-500/30' : ''"
+          @click="toggleWatch"
+        >
+          <EyeOff
+            v-if="isWatching"
+            class="size-3 mr-1.5"
+          />
+          <Eye
+            v-else
+            class="size-3 mr-1.5"
+          />
+          {{ isWatching ? t('tabs.unwatch') : t('tabs.watch') }}
         </Button>
         <Button
           variant="outline"
@@ -407,7 +546,7 @@ const getNodeName = (path: string) => {
         <Button
           variant="ghost"
           size="icon"
-          :disabled="isSubmitting"
+          :disabled="isSubmitting || tab.isDeleted"
           class="h-7 w-7 text-muted-foreground hover:text-foreground"
           @click="openCreateDialog"
         >
@@ -427,7 +566,7 @@ const getNodeName = (path: string) => {
         <Button
           variant="ghost"
           size="icon"
-          :disabled="isSubmitting"
+          :disabled="isSubmitting || tab.isDeleted"
           class="h-7 w-7 text-muted-foreground hover:text-destructive"
           @click="showDeleteDialog = true"
         >

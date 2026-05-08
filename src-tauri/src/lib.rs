@@ -1,10 +1,11 @@
 use std::sync::{Arc, Mutex};
-use zookeeper_client::{Client, Acl, Permission, AuthId, CreateMode, Acls};
+use zookeeper_client::{Client, Acl, Permission, AuthId, CreateMode, Acls, EventType};
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
 mod migrations;
 mod ssh_tunnel;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ZkStat {
     czxid: i64,
@@ -20,7 +21,7 @@ struct ZkStat {
     numChildren: i32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct ZkAclEntry {
     scheme: String,
     id: String,
@@ -63,9 +64,21 @@ impl From<zookeeper_client::Acl> for ZkAclEntry {
     }
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct WatchEvent {
+    connection_uuid: String,
+    path: String,
+    event_type: String,
+    data: Option<Vec<u8>>,
+    stat: Option<ZkStat>,
+    acl: Option<Vec<ZkAclEntry>>,
+}
+
 struct ZkClient {
   clients: Mutex<std::collections::HashMap<String, Arc<Client>>>,
   ssh_tunnels: Mutex<std::collections::HashMap<String, ssh_tunnel::SshTunnel>>,
+  watchers: Arc<Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>>,
 }
 
 #[tauri::command]
@@ -155,6 +168,19 @@ async fn disconnect_zk(
   connection_uuid: String,
 ) -> Result<String, String> {
   println!("断开连接 ZK: {}", connection_uuid);
+
+  // Abort all watchers for this connection
+  {
+    let mut watchers_lock = state.watchers.lock().map_err(|_| "Mutex poisoned")?;
+    let prefix = format!("{}:", connection_uuid);
+    let keys: Vec<String> = watchers_lock.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
+    for key in keys {
+      if let Some(handle) = watchers_lock.remove(&key) {
+        handle.abort();
+      }
+    }
+  }
+
   let mut clients_lock = state.clients.lock().map_err(|_| "Mutex poisoned")?;
   clients_lock.remove(&connection_uuid);
 
@@ -351,6 +377,146 @@ async fn set_acl(
   Ok("SUCCESS".to_string())
 }
 
+#[tauri::command]
+async fn watch_node(
+  app: tauri::AppHandle,
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String,
+) -> Result<String, String> {
+  let watch_key = format!("{}:{}", connection_uuid, path);
+
+  // Check if already watching
+  {
+    let watchers_lock = state.watchers.lock().map_err(|_| "Mutex poisoned")?;
+    if watchers_lock.contains_key(&watch_key) {
+      return Ok("ALREADY_WATCHING".to_string());
+    }
+  }
+
+  let client_arc = {
+    let guard = state.clients.lock().map_err(|_| "Mutex poisoned")?;
+    guard
+      .get(&connection_uuid)
+      .cloned()
+      .ok_or("Client not initialized for this connection!")?
+  };
+
+  // Initial fetch with watch
+  let (data, stat, watcher) = client_arc.get_and_watch_data(&path).await.map_err(|e| e.to_string())?;
+
+  // Fetch ACL for initial event
+  let (acl, _) = client_arc.get_acl(&path).await.map_err(|e| e.to_string())?;
+
+  // Emit initial data
+  let _ = app.emit("zk:node-changed", WatchEvent {
+    connection_uuid: connection_uuid.clone(),
+    path: path.clone(),
+    event_type: "NodeDataChanged".to_string(),
+    data: Some(data),
+    stat: Some(stat.into()),
+    acl: Some(acl.into_iter().map(|a| a.into()).collect()),
+  });
+
+  // Spawn background watcher task
+  let app_handle = app.clone();
+  let conn_uuid = connection_uuid.clone();
+  let node_path = path.clone();
+  let client_for_task = client_arc.clone();
+  let watchers_arc = state.watchers.clone();
+
+  let handle = tokio::spawn(async move {
+    let mut current_watcher = watcher;
+    loop {
+      let event = current_watcher.changed().await;
+
+      let event_type = match event.event_type {
+        EventType::NodeCreated => "NodeCreated",
+        EventType::NodeDeleted => "NodeDeleted",
+        EventType::NodeDataChanged => "NodeDataChanged",
+        EventType::NodeChildrenChanged => "NodeChildrenChanged",
+        EventType::Session => "Session",
+      };
+
+      if event.event_type == EventType::NodeDeleted {
+        let _ = app_handle.emit("zk:node-changed", WatchEvent {
+          connection_uuid: conn_uuid.clone(),
+          path: node_path.clone(),
+          event_type: "NodeDeleted".to_string(),
+          data: None,
+          stat: None,
+          acl: None,
+        });
+        break;
+      }
+
+      // Re-register watcher and fetch fresh data
+      match client_for_task.get_and_watch_data(&node_path).await {
+        Ok((new_data, new_stat, new_watcher)) => {
+          let new_acl = match client_for_task.get_acl(&node_path).await {
+            Ok((acl, _)) => acl.into_iter().map(|a| a.into()).collect(),
+            Err(_) => vec![],
+          };
+
+          let _ = app_handle.emit("zk:node-changed", WatchEvent {
+            connection_uuid: conn_uuid.clone(),
+            path: node_path.clone(),
+            event_type: event_type.to_string(),
+            data: Some(new_data),
+            stat: Some(new_stat.into()),
+            acl: Some(new_acl),
+          });
+
+          current_watcher = new_watcher;
+        }
+        Err(e) => {
+          // Node may have been deleted or connection lost
+          println!("Watch re-register failed for {}: {:?}", node_path, e);
+          let _ = app_handle.emit("zk:node-changed", WatchEvent {
+            connection_uuid: conn_uuid.clone(),
+            path: node_path.clone(),
+            event_type: "NodeDeleted".to_string(),
+            data: None,
+            stat: None,
+            acl: None,
+          });
+          break;
+        }
+      }
+    }
+
+    // Clean up from watchers map when task ends
+    let key = format!("{}:{}", conn_uuid, node_path);
+    if let Ok(mut watchers) = watchers_arc.lock() {
+      watchers.remove(&key);
+    }
+  });
+
+  // Store the abort handle
+  {
+    let mut watchers_lock = state.watchers.lock().map_err(|_| "Mutex poisoned")?;
+    watchers_lock.insert(watch_key, handle.abort_handle());
+  }
+
+  Ok("SUCCESS".to_string())
+}
+
+#[tauri::command]
+async fn unwatch_node(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String,
+) -> Result<String, String> {
+  let watch_key = format!("{}:{}", connection_uuid, path);
+  let mut watchers_lock = state.watchers.lock().map_err(|_| "Mutex poisoned")?;
+  if let Some(handle) = watchers_lock.remove(&watch_key) {
+    handle.abort();
+    Ok("SUCCESS".to_string())
+  } else {
+    Ok("NOT_WATCHING".to_string())
+  }
+}
+
 fn parse_permissions(perm_str: &str) -> Result<Permission, String> {
   if perm_str == "ALL" {
     return Ok(Permission::ALL);
@@ -382,6 +548,7 @@ pub fn run() {
     .manage(ZkClient {
       clients: Mutex::new(std::collections::HashMap::new()),
       ssh_tunnels: Mutex::new(std::collections::HashMap::new()),
+      watchers: Arc::new(Mutex::new(std::collections::HashMap::new())),
     })
     .invoke_handler(tauri::generate_handler![
       connect_zk,
@@ -393,7 +560,9 @@ pub fn run() {
       set_data,
       delete_node,
       create_node,
-      set_acl
+      set_acl,
+      watch_node,
+      unwatch_node
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

@@ -39,6 +39,7 @@ export default {
     deleteSuccess: '节点删除成功',
     deleteFailed: '删除节点失败',
     saveSuccess: '保存成功',
+    deleted: '节点已被删除',
   },
   tabs: {
     data: '数据',
@@ -48,6 +49,8 @@ export default {
     refresh: '刷新',
     locate: '定位',
     selectNode: '选择一个节点查看详情',
+    watch: '监听',
+    unwatch: '取消监听',
   },
   acl: {
     add: '添加权限',

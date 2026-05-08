@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useI18n } from 'vue-i18n';
-import { FileText, X } from 'lucide-vue-next';
+import { FileText, X, Eye } from 'lucide-vue-next';
 import {
   Tooltip,
   TooltipContent,
@@ -62,7 +62,14 @@ const getTabName = (path: string) => {
                   class="w-3.5 h-3.5 shrink-0"
                   :class="tab.isActive ? 'text-primary' : 'text-muted-foreground/70'"
                 />
-                <span class="truncate max-w-24 font-medium">{{ getTabName(tab.path) }}</span>
+                <Eye
+                  v-if="tab.isWatching"
+                  class="w-3 h-3 shrink-0 text-green-500"
+                />
+                <span
+                  class="truncate max-w-24 font-medium"
+                  :class="tab.isDeleted ? 'line-through text-muted-foreground' : ''"
+                >{{ tab.isDeleted ? '--' : getTabName(tab.path) }}</span>
                 <div class="ml-1 relative w-4 h-4 flex items-center justify-center shrink-0">
                   <div
                     v-if="tab.isDirty"

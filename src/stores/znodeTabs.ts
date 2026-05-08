@@ -11,6 +11,8 @@ export interface ZnodeTab {
   isActive: boolean;
   isTemporary: boolean;
   isDirty?: boolean;
+  isWatching?: boolean;
+  isDeleted?: boolean;
 }
 
 export const useZnodeTabsStore = defineStore('znodeTabs', () => {
@@ -153,6 +155,20 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     }
   }
 
+  const setWatching = (path: string, watching: boolean) => {
+    const tab = znodeTabs.value.find(item => item.path === path);
+    if (tab) {
+      tab.isWatching = watching;
+    }
+  }
+
+  const setDeleted = (path: string, deleted: boolean) => {
+    const tab = znodeTabs.value.find(item => item.path === path);
+    if (tab) {
+      tab.isDeleted = deleted;
+    }
+  }
+
   const closeTabsByConnection = (uuid: string) => {
     znodeTabs.value = znodeTabs.value.filter(item => item.connectionUuid !== uuid);
     // Ensure active tab logic
@@ -192,6 +208,8 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     closeTabsToRight,
     clearTabs,
     setDirty,
+    setWatching,
+    setDeleted,
     closeTabsByConnection,
   }
 })
