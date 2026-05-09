@@ -21,11 +21,15 @@ const props = defineProps<{
   open: boolean;
   connection: Partial<Connection> | null;
   mode: 'add' | 'edit';
+  saving?: boolean;
+  testing?: boolean;
+  errorMessage?: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:open', value: boolean): void;
   (e: 'save', connection: Omit<Connection, 'uuid'> & { uuid?: string }): void;
+  (e: 'test', connection: Omit<Connection, 'uuid'> & { uuid?: string }): void;
 }>();
 
 const conn = ref<Partial<Connection>>({});
@@ -60,7 +64,11 @@ watch(
 const handleSave = () => {
   if (!conn.value.url) return;
   emit('save', conn.value as Omit<Connection, 'uuid'> & { uuid?: string });
-  emit('update:open', false);
+};
+
+const handleTest = () => {
+  if (!conn.value.url) return;
+  emit('test', conn.value as Omit<Connection, 'uuid'> & { uuid?: string });
 };
 </script>
 
@@ -153,6 +161,7 @@ const handleSave = () => {
                       placeholder="Optional"
                     />
                     <Button
+                      :aria-label="showPassword ? 'Hide password' : 'Show password'"
                       variant="ghost"
                       size="icon"
                       class="absolute right-1 top-1 h-7 w-7 text-muted-foreground"
@@ -269,14 +278,29 @@ const handleSave = () => {
       </Tabs>
 
       <DialogFooter class="p-5 pt-4 border-t border-border/50 bg-muted/20">
+        <p
+          v-if="errorMessage"
+          class="mr-auto text-sm text-destructive"
+        >
+          {{ errorMessage }}
+        </p>
         <Button
           variant="ghost"
+          :disabled="saving || testing"
           @click="emit('update:open', false)"
         >
           {{ t('connection.cancel') }}
         </Button>
         <Button
-          :disabled="!conn.url"
+          variant="outline"
+          :disabled="!conn.url || saving || testing"
+          class="min-w-[100px]"
+          @click="handleTest"
+        >
+          {{ testing ? t('connection.testing') : t('connection.test') }}
+        </Button>
+        <Button
+          :disabled="!conn.url || saving || testing"
           class="min-w-[100px]"
           @click="handleSave"
         >

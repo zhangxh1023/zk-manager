@@ -24,6 +24,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { showToast } from '../../utils/toast';
+import { getErrorCode, getErrorMessage } from '../../utils/errors';
 
 const { t } = i18n.global;
 
@@ -48,6 +49,13 @@ const isDeleting = ref(false);
 // Navigate into this node when clicking the name (activates existing tab or creates temporary tab)
 const handleNavigate = async () => {
   try {
+    const dirtyTemporaryTab = znodeTabsStore.getDirtyTemporaryTabForReplacement(
+      props.connectionUuid,
+      props.node.path,
+    );
+    if (dirtyTemporaryTab && !window.confirm(t('tabs.confirmReplaceDirty'))) {
+      return;
+    }
     await zkTreeStore.navigateTo(props.connectionUuid, props.node.path);
     const details = await zkApi.getDetails(props.connectionUuid, props.node.path);
     const activatedExisting = znodeTabsStore.replaceOrCreateTemporaryTab({
@@ -84,7 +92,7 @@ const handleOpenInTab = async () => {
   });
   if (tabExisted) {
     // Tab already existed, refresh it to get latest data
-    znodeTabsStore.updateTab(props.node.path, {
+    znodeTabsStore.updateTab(props.connectionUuid, props.node.path, {
       znodeData: details.data,
       stat: details.stat,
       acl: details.acl,
@@ -113,8 +121,9 @@ const createChildNode = async () => {
     showCreateDialog.value = false;
     showToast.success(t('node.createSuccess', { path: childPath }));
   } catch (err) {
-    await logsStore.addLog(props.connectionUuid, 'CREATE', `Failed to create node ${childPath}: ${err}`, false);
-    showToast.error(`${t('node.createFailed')}: ${err}`);
+    const errorMsg = getErrorMessage(err);
+    await logsStore.addLog(props.connectionUuid, 'CREATE', `Failed to create node ${childPath}: ${errorMsg}`, false);
+    showToast.error(`${t('node.createFailed')}: ${errorMsg}`);
   }
 };
 
@@ -127,12 +136,42 @@ const confirmDelete = async () => {
   try {
     await zkApi.deleteNode(props.connectionUuid, props.node.path);
     await logsStore.addLog(props.connectionUuid, 'DELETE', `Deleted node ${props.node.path}`);
-    znodeTabsStore.delTab(props.node.path);
+    znodeTabsStore.delTab(props.connectionUuid, props.node.path);
     await zkTreeStore.onNodeDeleted(props.connectionUuid, props.node.path);
     showDeleteDialog.value = false;
     showToast.success(t('node.deleteSuccess'));
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    if (
+      getErrorCode(err) === 'NOT_EMPTY'
+      && window.confirm(t('node.confirmRecursiveDelete', { path: props.node.path }))
+    ) {
+      if (
+        znodeTabsStore.hasDirtyTabsByPathPrefix(props.connectionUuid, props.node.path)
+        && !window.confirm(t('tabs.confirmRecursiveDeleteDirty'))
+      ) {
+        return;
+      }
+      try {
+        await zkApi.deleteNodeRecursive(props.connectionUuid, props.node.path);
+        await logsStore.addLog(props.connectionUuid, 'DELETE', `Recursively deleted node ${props.node.path}`);
+        znodeTabsStore.closeTabsByPathPrefix(props.connectionUuid, props.node.path);
+        await zkTreeStore.onNodeDeleted(props.connectionUuid, props.node.path);
+        showDeleteDialog.value = false;
+        showToast.success(t('node.deleteSuccess'));
+        return;
+      } catch (recursiveError) {
+        const recursiveErrorMsg = getErrorMessage(recursiveError);
+        await logsStore.addLog(
+          props.connectionUuid,
+          'DELETE',
+          `Failed to recursively delete node ${props.node.path}: ${recursiveErrorMsg}`,
+          false,
+        );
+        showToast.error(recursiveErrorMsg);
+        return;
+      }
+    }
+    const errorMsg = getErrorMessage(err);
     await logsStore.addLog(props.connectionUuid, 'DELETE', `Failed to delete node ${props.node.path}: ${errorMsg}`, false);
     showToast.error(errorMsg);
   } finally {

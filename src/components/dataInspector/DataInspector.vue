@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, defineAsyncComponent, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
 import { useZkTreeStore } from '../../stores/zkTree';
@@ -30,14 +30,16 @@ import {
 import type { ZnodeTab } from '../../stores/znodeTabs';
 import type { ZkAclEntry, ZkStat } from '../../types/znodeDetails';
 import { showToast } from '../../utils/toast';
+import { getErrorCode, getErrorMessage } from '../../utils/errors';
 import { formatBytes, parseBytes, type SerializationFormat } from '../../utils/serializer';
 
 // Viewer components
 import TextViewer from './components/TextViewer.vue';
-import JSONViewer from './components/JSONViewer.vue';
-import XMLViewer from './components/XMLViewer.vue';
 import HexViewer from './components/HexViewer.vue';
 import BinaryViewer from './components/BinaryViewer.vue';
+
+const JSONViewer = defineAsyncComponent(() => import('./components/JSONViewer.vue'));
+const XMLViewer = defineAsyncComponent(() => import('./components/XMLViewer.vue'));
 
 const { t } = useI18n();
 
@@ -82,31 +84,46 @@ const FORMAT_OPTIONS: { value: SerializationFormat; label: string }[] = [
   { value: 'binary', label: 'Binary' },
 ];
 
+const hasUnsavedChanges = () => originalValue.value !== null && editValue.value !== originalValue.value;
+
+const syncEditValue = () => {
+  const result = formatBytes(props.tab.znodeData, dataFormat.value);
+  if (result.success && result.data !== undefined) {
+    editValue.value = result.data;
+    originalValue.value = result.data;
+    errorMessage.value = '';
+  } else {
+    errorMessage.value = result.error || 'Failed to format data';
+  }
+};
+
 const formatTimestamp = (value: number) => {
   if (!value) return '-';
   return new Date(value).toLocaleString();
 };
 
-// Update editValue when format or data changes
-watch(
-  () => [props.tab.znodeData, dataFormat.value],
-  () => {
-    const result = formatBytes(props.tab.znodeData, dataFormat.value);
-    if (result.success && result.data !== undefined) {
-      editValue.value = result.data;
-      originalValue.value = result.data;
-      errorMessage.value = '';
-    } else {
-      errorMessage.value = result.error || 'Failed to format data';
-    }
-  },
-  { immediate: true },
-);
+watch(() => props.tab.znodeData, syncEditValue, { immediate: true });
+
+let revertingFormat = false;
+watch(dataFormat, (_, oldFormat) => {
+  if (revertingFormat) {
+    revertingFormat = false;
+    return;
+  }
+
+  if (hasUnsavedChanges() && !window.confirm(t('tabs.confirmFormatDirty'))) {
+    revertingFormat = true;
+    dataFormat.value = oldFormat;
+    return;
+  }
+
+  syncEditValue();
+});
 
 // Track dirtiness
 watch(editValue, (newVal) => {
   if (originalValue.value !== null) {
-    znodeTabsStore.setDirty(props.tab.path, newVal !== originalValue.value);
+    znodeTabsStore.setDirty(props.tab.connectionUuid, props.tab.path, newVal !== originalValue.value);
   }
 });
 
@@ -141,21 +158,24 @@ const statRows = computed(() => {
 });
 
 const refresh = async () => {
+  if (hasUnsavedChanges() && !window.confirm(t('tabs.confirmRefreshDirty'))) {
+    return;
+  }
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
     const details = await zkApi.getDetails(props.tab.connectionUuid, props.tab.path);
-    znodeTabsStore.updateTab(props.tab.path, {
+    znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
       znodeData: details.data,
       stat: details.stat,
       acl: details.acl,
     });
-    znodeTabsStore.setDeleted(props.tab.path, false);
+    znodeTabsStore.setDeleted(props.tab.connectionUuid, props.tab.path, false);
     await logsStore.addLog('current', 'REFRESH', `Refreshed node ${props.tab.path}`);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes('NoNode')) {
-      znodeTabsStore.setDeleted(props.tab.path, true);
+    const msg = getErrorMessage(error);
+    if (msg.includes('NoNode') || msg.includes('does not exist')) {
+      znodeTabsStore.setDeleted(props.tab.connectionUuid, props.tab.path, true);
     }
     errorMessage.value = msg;
   } finally {
@@ -175,17 +195,56 @@ const save = async () => {
       return;
     }
 
-    const details = await zkApi.setData(props.tab.connectionUuid, props.tab.path, result.bytes);
-    znodeTabsStore.updateTab(props.tab.path, {
+    if (!props.tab.stat) {
+      throw new Error(t('node.refreshBeforeSave'));
+    }
+
+    const details = await zkApi.setData(
+      props.tab.connectionUuid,
+      props.tab.path,
+      result.bytes,
+      props.tab.stat.version,
+    );
+    znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
       znodeData: details.data,
       stat: details.stat,
       acl: details.acl,
     });
-    znodeTabsStore.setDirty(props.tab.path, false);
+    znodeTabsStore.setDirty(props.tab.connectionUuid, props.tab.path, false);
     await logsStore.addLog('current', 'SET_DATA', `Updated data of ${props.tab.path}`);
     showToast.success(t('node.saveSuccess'));
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (
+      getErrorCode(error) === 'NOT_EMPTY'
+      && window.confirm(t('node.confirmRecursiveDelete', { path: props.tab.path }))
+    ) {
+      if (
+        znodeTabsStore.hasDirtyTabsByPathPrefix(props.tab.connectionUuid, props.tab.path)
+        && !window.confirm(t('tabs.confirmRecursiveDeleteDirty'))
+      ) {
+        return;
+      }
+      try {
+        await zkApi.deleteNodeRecursive(props.tab.connectionUuid, props.tab.path);
+        await logsStore.addLog('current', 'DELETE', `Recursively deleted node ${props.tab.path}`);
+        await zkTreeStore.onNodeDeleted(props.tab.connectionUuid, props.tab.path);
+        znodeTabsStore.closeTabsByPathPrefix(props.tab.connectionUuid, props.tab.path);
+        showDeleteDialog.value = false;
+        showToast.success(t('node.deleteSuccess'));
+        return;
+      } catch (recursiveError) {
+        const recursiveErrorMsg = getErrorMessage(recursiveError);
+        await logsStore.addLog(
+          'current',
+          'DELETE',
+          `Failed to recursively delete node ${props.tab.path}: ${recursiveErrorMsg}`,
+          false,
+        );
+        showToast.error(recursiveErrorMsg);
+        return;
+      }
+    }
+    const errorMsg = getErrorMessage(error);
     showToast.error(errorMsg);
   } finally {
     isSubmitting.value = false;
@@ -199,11 +258,11 @@ const removeNode = async () => {
     await zkApi.deleteNode(props.tab.connectionUuid, props.tab.path);
     await logsStore.addLog('current', 'DELETE', `Deleted node ${props.tab.path}`);
     await zkTreeStore.onNodeDeleted(props.tab.connectionUuid, props.tab.path);
-    znodeTabsStore.delTab(props.tab.path);
+    znodeTabsStore.delTab(props.tab.connectionUuid, props.tab.path);
     showDeleteDialog.value = false;
     showToast.success(t('node.deleteSuccess'));
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = getErrorMessage(error);
     showToast.error(errorMsg);
   } finally {
     isSubmitting.value = false;
@@ -229,7 +288,7 @@ const toggleWatch = async () => {
       await zkApi.unwatchNode(props.tab.connectionUuid, props.tab.path);
     } catch { /* ignore */ }
     isWatching.value = false;
-    znodeTabsStore.setWatching(props.tab.path, false);
+    znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
     if (unlistenWatch) {
       unlistenWatch();
       unlistenWatch = null;
@@ -250,8 +309,8 @@ const toggleWatch = async () => {
         }
         if (payload.eventType === 'NodeDeleted') {
           isWatching.value = false;
-          znodeTabsStore.setDeleted(props.tab.path, true);
-          znodeTabsStore.setWatching(props.tab.path, false);
+          znodeTabsStore.setDeleted(props.tab.connectionUuid, props.tab.path, true);
+          znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
           showToast.error(t('node.deleted'));
           if (unlistenWatch) {
             unlistenWatch();
@@ -260,7 +319,7 @@ const toggleWatch = async () => {
           return;
         }
         if (payload.data !== null && payload.stat !== null) {
-          znodeTabsStore.updateTab(props.tab.path, {
+          znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
             znodeData: payload.data,
             stat: payload.stat as ZkStat,
             acl: (payload.acl ?? []) as ZkAclEntry[],
@@ -269,9 +328,9 @@ const toggleWatch = async () => {
       });
       await zkApi.watchNode(props.tab.connectionUuid, props.tab.path);
       isWatching.value = true;
-      znodeTabsStore.setWatching(props.tab.path, true);
+      znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, true);
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorMsg = getErrorMessage(error);
       showToast.error(errorMsg);
     }
   }
@@ -296,8 +355,8 @@ onMounted(async () => {
         }
         if (payload.eventType === 'NodeDeleted') {
           isWatching.value = false;
-          znodeTabsStore.setDeleted(props.tab.path, true);
-          znodeTabsStore.setWatching(props.tab.path, false);
+          znodeTabsStore.setDeleted(props.tab.connectionUuid, props.tab.path, true);
+          znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
           showToast.error(t('node.deleted'));
           if (unlistenWatch) {
             unlistenWatch();
@@ -306,7 +365,7 @@ onMounted(async () => {
           return;
         }
         if (payload.data !== null && payload.stat !== null) {
-          znodeTabsStore.updateTab(props.tab.path, {
+          znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
             znodeData: payload.data,
             stat: payload.stat as ZkStat,
             acl: (payload.acl ?? []) as ZkAclEntry[],
@@ -316,7 +375,7 @@ onMounted(async () => {
       await zkApi.watchNode(props.tab.connectionUuid, props.tab.path);
       isWatching.value = true;
     } catch {
-      znodeTabsStore.setWatching(props.tab.path, false);
+      znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
     }
   }
 });
@@ -329,7 +388,7 @@ onUnmounted(() => {
   }
   if (isWatching.value) {
     zkApi.unwatchNode(props.tab.connectionUuid, props.tab.path).catch(() => {});
-    znodeTabsStore.setWatching(props.tab.path, false);
+    znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
   }
 });
 
@@ -351,7 +410,7 @@ const createChildNode = async () => {
     showCreateDialog.value = false;
     showToast.success(t('node.createSuccess', { path: childPath }));
   } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : String(error);
+    const errMsg = getErrorMessage(error);
     await logsStore.addLog('current', 'CREATE', `Failed to create node ${childPath}: ${errMsg}`, false);
     showToast.error(errMsg);
   } finally {
@@ -375,16 +434,23 @@ const saveAcl = async () => {
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
+    if (!props.tab.stat) {
+      throw new Error(t('node.refreshBeforeSave'));
+    }
     const newAclList = [...props.tab.acl.filter(a =>
       !(a.scheme === editingAcl.value!.scheme && a.id === editingAcl.value!.id),
     ), editingAcl.value];
-    await zkApi.setAcl(props.tab.connectionUuid, props.tab.path, newAclList);
+    await zkApi.setAcl(props.tab.connectionUuid, props.tab.path, newAclList, props.tab.stat.aversion);
     const details = await zkApi.getDetails(props.tab.connectionUuid, props.tab.path);
-    znodeTabsStore.updateTab(props.tab.path, { acl: details.acl });
+    znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
+      znodeData: details.data,
+      stat: details.stat,
+      acl: details.acl,
+    });
     await logsStore.addLog('current', 'SET_ACL', `Updated ACL of ${props.tab.path}`);
     showAclDialog.value = false;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = getErrorMessage(error);
   } finally {
     isSubmitting.value = false;
   }
@@ -400,24 +466,73 @@ const deleteAcl = async () => {
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
+    if (!props.tab.stat) {
+      throw new Error(t('node.refreshBeforeSave'));
+    }
     const newAclList = props.tab.acl.filter(a =>
       !(a.scheme === aclToDelete.value!.scheme && a.id === aclToDelete.value!.id),
     );
-    await zkApi.setAcl(props.tab.connectionUuid, props.tab.path, newAclList);
+    await zkApi.setAcl(props.tab.connectionUuid, props.tab.path, newAclList, props.tab.stat.aversion);
     const details = await zkApi.getDetails(props.tab.connectionUuid, props.tab.path);
-    znodeTabsStore.updateTab(props.tab.path, { acl: details.acl });
+    znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
+      znodeData: details.data,
+      stat: details.stat,
+      acl: details.acl,
+    });
     await logsStore.addLog('current', 'DELETE_ACL', `Deleted ACL from ${props.tab.path}`);
     showAclDeleteDialog.value = false;
     aclToDelete.value = null;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = getErrorMessage(error);
   } finally {
     isSubmitting.value = false;
   }
 };
 
-const PERMISSION_OPTIONS = ['READ', 'WRITE', 'CREATE', 'DELETE', 'ADMIN', 'ALL'];
+const PERMISSION_OPTIONS = ['READ', 'WRITE', 'CREATE', 'DELETE', 'ADMIN'];
 const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
+
+const selectedPermissions = computed(() => {
+  if (!editingAcl.value) return [];
+  if (editingAcl.value.permission === 'ALL') return [...PERMISSION_OPTIONS];
+  if (editingAcl.value.permission === 'NONE') return [];
+  return editingAcl.value.permission
+    .split('|')
+    .map(part => part.trim().toUpperCase())
+    .filter(part => PERMISSION_OPTIONS.includes(part));
+});
+
+const allPermissionsSelected = computed(() =>
+  selectedPermissions.value.length === PERMISSION_OPTIONS.length,
+);
+
+const setAclPermissionParts = (parts: string[]) => {
+  if (!editingAcl.value) return;
+  const uniqueParts = PERMISSION_OPTIONS.filter(permission => parts.includes(permission));
+  if (uniqueParts.length === PERMISSION_OPTIONS.length) {
+    editingAcl.value.permission = 'ALL';
+  } else if (uniqueParts.length === 0) {
+    editingAcl.value.permission = 'NONE';
+  } else {
+    editingAcl.value.permission = uniqueParts.join('|');
+  }
+};
+
+const toggleAclPermission = (permission: string, checked: boolean) => {
+  const nextPermissions = new Set(selectedPermissions.value);
+  if (checked) {
+    nextPermissions.add(permission);
+  } else {
+    nextPermissions.delete(permission);
+  }
+  setAclPermissionParts([...nextPermissions]);
+};
+
+const toggleAllAclPermissions = (checked: boolean) => {
+  setAclPermissionParts(checked ? [...PERMISSION_OPTIONS] : []);
+};
+
+const inputChecked = (event: Event) => (event.target as HTMLInputElement).checked;
 
 const schemeHint = computed(() => {
   if (!editingAcl.value) return '';
@@ -438,6 +553,10 @@ const validateAndSaveAcl = async () => {
   }
   if (scheme === 'digest' && !id.includes(':')) {
     errorMessage.value = t('acl.invalidDigestId');
+    return;
+  }
+  if (editingAcl.value.permission === 'NONE') {
+    errorMessage.value = t('acl.invalidPermission');
     return;
   }
   await saveAcl();
@@ -544,6 +663,7 @@ const getNodeName = (path: string) => {
         </Button>
         <div class="w-[1px] h-4 bg-sidebar-border mx-1" />
         <Button
+          :aria-label="t('node.createChild')"
           variant="ghost"
           size="icon"
           :disabled="isSubmitting || tab.isDeleted"
@@ -564,6 +684,7 @@ const getNodeName = (path: string) => {
           ><path d="M5 12h14" /><path d="M12 5v14" /></svg>
         </Button>
         <Button
+          :aria-label="t('node.delete')"
           variant="ghost"
           size="icon"
           :disabled="isSubmitting || tab.isDeleted"
@@ -848,22 +969,30 @@ const getNodeName = (path: string) => {
           </div>
           <div>
             <Label class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">{{ t('acl.permission') }}</Label>
-            <Select v-model="editingAcl.permission">
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem
-                    v-for="p in PERMISSION_OPTIONS"
-                    :key="p"
-                    :value="p"
-                  >
-                    {{ p }}
-                  </SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <div class="mt-2 grid grid-cols-2 gap-2 rounded-md border p-3">
+              <label class="col-span-2 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  class="accent-primary"
+                  :checked="allPermissionsSelected"
+                  @change="toggleAllAclPermissions(inputChecked($event))"
+                >
+                ALL
+              </label>
+              <label
+                v-for="p in PERMISSION_OPTIONS"
+                :key="p"
+                class="flex items-center gap-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  class="accent-primary"
+                  :checked="selectedPermissions.includes(p)"
+                  @change="toggleAclPermission(p, inputChecked($event))"
+                >
+                {{ p }}
+              </label>
+            </div>
           </div>
         </div>
         <DialogFooter>

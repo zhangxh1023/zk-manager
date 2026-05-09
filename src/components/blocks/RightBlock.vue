@@ -13,18 +13,24 @@ import DataInspector from '../dataInspector/DataInspector.vue';
 const { t } = useI18n();
 const znodeTabsStore = useZnodeTabsStore();
 
-const closeTab = (path: string, event: Event) => {
+const closeTab = (connectionUuid: string, path: string, event: Event) => {
   event.stopPropagation();
-  znodeTabsStore.delTab(path);
+  if (
+    znodeTabsStore.hasDirtyTab(connectionUuid, path)
+    && !window.confirm(t('tabs.confirmCloseDirty'))
+  ) {
+    return;
+  }
+  znodeTabsStore.delTab(connectionUuid, path);
 };
 
-const setActive = (path: string) => {
-  znodeTabsStore.setActiveTab(path);
+const setActive = (connectionUuid: string, path: string) => {
+  znodeTabsStore.setActiveTab(connectionUuid, path);
 };
 
-const makePermanent = (path: string, event: Event) => {
+const makePermanent = (connectionUuid: string, path: string, event: Event) => {
   event.stopPropagation();
-  znodeTabsStore.makePermanent(path);
+  znodeTabsStore.makePermanent(connectionUuid, path);
 };
 
 const getTabName = (path: string) => {
@@ -43,7 +49,7 @@ const getTabName = (path: string) => {
       <div class="flex shrink-0 bg-sidebar-accent/10 overflow-x-auto border-b border-sidebar-border/50">
         <TooltipProvider
           v-for="tab in znodeTabsStore.znodeTabs"
-          :key="tab.path"
+          :key="`${tab.connectionUuid}:${tab.path}`"
         >
           <Tooltip>
             <TooltipTrigger as-child>
@@ -55,8 +61,8 @@ const getTabName = (path: string) => {
                     : 'text-muted-foreground hover:bg-sidebar bg-sidebar hover:text-foreground border-t-[1.5px] border-t-transparent',
                   tab.isTemporary ? 'italic' : ''
                 ]"
-                @click="setActive(tab.path)"
-                @dblclick="makePermanent(tab.path, $event)"
+                @click="setActive(tab.connectionUuid, tab.path)"
+                @dblclick="makePermanent(tab.connectionUuid, tab.path, $event)"
               >
                 <FileText
                   class="w-3.5 h-3.5 shrink-0"
@@ -76,11 +82,12 @@ const getTabName = (path: string) => {
                     class="w-2 h-2 rounded-full bg-blue-500 absolute transition-opacity group-hover:opacity-0"
                   />
                   <button
+                    :aria-label="`${t('node.delete')} ${tab.path}`"
                     class="p-0.5 rounded-sm hover:bg-muted/80 absolute transition-opacity"
                     :class="[
                       tab.isActive && !tab.isDirty ? 'opacity-100 text-muted-foreground hover:text-foreground' : 'opacity-0 group-hover:opacity-100'
                     ]"
-                    @click="closeTab(tab.path, $event)"
+                    @click="closeTab(tab.connectionUuid, tab.path, $event)"
                   >
                     <X class="w-3.5 h-3.5" />
                   </button>
@@ -112,7 +119,7 @@ const getTabName = (path: string) => {
       <div
         v-for="tab in znodeTabsStore.znodeTabs"
         v-show="tab.isActive"
-        :key="tab.path"
+        :key="`${tab.connectionUuid}:${tab.path}`"
         class="flex-1 overflow-hidden"
       >
         <DataInspector :tab="tab" />

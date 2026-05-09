@@ -8,6 +8,7 @@ import { zkApi } from '../../api/zk';
 import { useLogsStore } from '../../stores/logs';
 import { useI18n } from 'vue-i18n';
 import { showToast } from '../../utils/toast';
+import { getErrorMessage } from '../../utils/errors';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '../ui/context-menu';
@@ -17,106 +18,73 @@ import AppMenus from '../appMenus/AppMenus.vue';
 const { t } = useI18n();
 const connectionsStore = useConnectionsStore();
 const logsStore = useLogsStore();
-const connectedSet = ref<Set<string>>(new Set());
-const connectingSet = ref<Set<string>>(new Set());
-const expandedSet = ref<Set<string>>(new Set());
 const znodeTabsStore = useZnodeTabsStore();
 
 // Connection Dialog State
 const showConnectionDialog = ref(false);
 const currentDialogMode = ref<'add' | 'edit'>('add');
 const activeConnectionToEdit = ref<Connection | null>(null);
+const connectionDialogSaving = ref(false);
+const connectionDialogTesting = ref(false);
+const connectionDialogError = ref('');
 
 // Open AppMenus triggers
 const appMenusRef = ref<InstanceType<typeof AppMenus> | null>(null);
 
-const connect = async (conn: Connection) => {
-  try {
-    await zkApi.connect(
-      conn.uuid,
-      conn.url,
-      conn.username,
-      conn.password,
-      conn.use_ssh,
-      conn.ssh_host,
-      conn.ssh_port,
-      conn.ssh_username,
-      conn.ssh_auth_method,
-      conn.ssh_password,
-      conn.ssh_key_path,
-    );
-    connectedSet.value.add(conn.uuid);
-    expandedSet.value.add(conn.uuid);
-    await logsStore.addLog(conn.name || conn.uuid, 'CONNECT', `Connected to ${conn.url}`, true);
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error('Connection error:', errorMsg);
-    await logsStore.addLog(conn.name || conn.uuid, 'CONNECT', `Failed to connect to ${conn.url}: ${errorMsg}`, false);
-    throw err;
-  }
-};
-
 const disconnect = async (conn: Connection) => {
-  try {
-    await zkApi.disconnect(conn.uuid);
-  } catch (err) {
-    console.error('Disconnect error:', err);
+  if (
+    znodeTabsStore.hasDirtyTabsByConnection(conn.uuid)
+    && !window.confirm(t('tabs.confirmDisconnectDirty'))
+  ) {
+    return;
   }
-  connectedSet.value.delete(conn.uuid);
-  expandedSet.value.delete(conn.uuid);
+  await connectionsStore.disconnectConnection(conn);
   znodeTabsStore.closeTabsByConnection(conn.uuid);
-  await logsStore.addLog(conn.name || conn.uuid, 'DISCONNECT', `Disconnected from ${conn.url}`);
 };
 
 const toggleConnection = async (conn: Connection) => {
-  if (connectingSet.value.has(conn.uuid)) return;
-
-  if (connectedSet.value.has(conn.uuid)) {
-    // If already connected, just toggle expansion
-    if (expandedSet.value.has(conn.uuid)) {
-      expandedSet.value.delete(conn.uuid);
-    } else {
-      expandedSet.value.add(conn.uuid);
-    }
-  } else {
-    connectingSet.value.add(conn.uuid);
-    try {
-      await connect(conn);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      showToast.error(`连接失败: ${errorMsg}`);
-    } finally {
-      connectingSet.value.delete(conn.uuid);
-    }
+  try {
+    await connectionsStore.toggleConnection(conn);
+  } catch (err) {
+    const errorMsg = getErrorMessage(err);
+    showToast.error(`连接失败: ${errorMsg}`);
   }
 };
 
-const isConnected = (uuid: string) => connectedSet.value.has(uuid);
-const isConnecting = (uuid: string) => connectingSet.value.has(uuid);
-const isExpanded = (uuid: string) => expandedSet.value.has(uuid);
+const isConnected = connectionsStore.isConnected;
+const isConnecting = connectionsStore.isConnecting;
+const isExpanded = connectionsStore.isExpanded;
 
 const openAddDialog = () => {
   currentDialogMode.value = 'add';
   activeConnectionToEdit.value = null;
+  connectionDialogError.value = '';
   showConnectionDialog.value = true;
 };
 
-const openEditDialog = (conn: Connection, event?: Event) => {
+const openEditDialog = async (conn: Connection, event?: Event) => {
   if (event) event.stopPropagation();
   currentDialogMode.value = 'edit';
-  activeConnectionToEdit.value = { ...conn };
+  connectionDialogError.value = '';
+  const secrets = await connectionsStore.loadConnectionSecrets(conn.uuid);
+  activeConnectionToEdit.value = { ...conn, ...secrets };
   showConnectionDialog.value = true;
 };
 
 const deleteConnection = async (conn: Connection, event?: Event) => {
   if (event) event.stopPropagation();
   if (!window.confirm(t('connection.confirmDelete'))) return;
-
-  if (connectedSet.value.has(conn.uuid)) {
-    try { await zkApi.disconnect(conn.uuid); } catch { /* ignore */ }
+  if (
+    znodeTabsStore.hasDirtyTabsByConnection(conn.uuid)
+    && !window.confirm(t('tabs.confirmDisconnectDirty'))
+  ) {
+    return;
   }
-  connectedSet.value.delete(conn.uuid);
-  expandedSet.value.delete(conn.uuid);
+
+  if (connectionsStore.isConnected(conn.uuid)) {
+    await connectionsStore.disconnectConnection(conn);
+  }
+  connectionsStore.forgetConnectionState(conn.uuid);
   znodeTabsStore.closeTabsByConnection(conn.uuid);
   
   await connectionsStore.removeConnection(conn.uuid);
@@ -124,12 +92,53 @@ const deleteConnection = async (conn: Connection, event?: Event) => {
 };
 
 const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string }) => {
-  if (currentDialogMode.value === 'add') {
-    const { v4: uuidv4 } = await import('uuid');
-    connData.uuid = uuidv4();
-    await connectionsStore.addConnection(connData as Connection);
-  } else {
-    await connectionsStore.updateConnection(connData as Connection);
+  connectionDialogSaving.value = true;
+  connectionDialogError.value = '';
+  try {
+    if (currentDialogMode.value === 'add') {
+      const { v4: uuidv4 } = await import('uuid');
+      connData.uuid = uuidv4();
+      await connectionsStore.addConnection(connData as Connection);
+    } else {
+      await connectionsStore.updateConnection(connData as Connection);
+    }
+    showConnectionDialog.value = false;
+  } catch (error) {
+    const errorMessage = getErrorMessage(error);
+    connectionDialogError.value = errorMessage;
+    showToast.error(errorMessage);
+  } finally {
+    connectionDialogSaving.value = false;
+  }
+};
+
+const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string }) => {
+  if (!connData.url) return;
+  const testUuid = `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  connectionDialogTesting.value = true;
+  connectionDialogError.value = '';
+  try {
+    await zkApi.connect(
+      testUuid,
+      connData.url,
+      connData.username,
+      connData.password,
+      connData.use_ssh,
+      connData.ssh_host,
+      connData.ssh_port,
+      connData.ssh_username,
+      connData.ssh_auth_method,
+      connData.ssh_password,
+      connData.ssh_key_path,
+    );
+    showToast.success(t('connection.testSuccess'));
+  } catch (error) {
+    const errorMessage = getErrorMessage(error);
+    connectionDialogError.value = errorMessage;
+    showToast.error(t('connection.testFailed', { message: errorMessage }));
+  } finally {
+    await zkApi.disconnect(testUuid).catch(() => {});
+    connectionDialogTesting.value = false;
   }
 };
 </script>
@@ -142,6 +151,7 @@ const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
+              :aria-label="t('app.newConnection')"
               variant="ghost"
               size="icon"
               class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground"
@@ -162,6 +172,7 @@ const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
           <Tooltip>
             <TooltipTrigger as-child>
               <Button
+                :aria-label="t('app.settings')"
                 variant="ghost"
                 size="icon"
                 class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground"
@@ -180,6 +191,7 @@ const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
           <Tooltip>
             <TooltipTrigger as-child>
               <Button
+                :aria-label="t('app.logs')"
                 variant="ghost"
                 size="icon"
                 class="rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground"
@@ -292,7 +304,11 @@ const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
       v-model:open="showConnectionDialog" 
       :mode="currentDialogMode" 
       :connection="activeConnectionToEdit"
+      :saving="connectionDialogSaving"
+      :testing="connectionDialogTesting"
+      :error-message="connectionDialogError"
       @save="onDialogSave"
+      @test="onDialogTest"
     />
     
     <AppMenus

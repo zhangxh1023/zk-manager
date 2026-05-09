@@ -19,13 +19,36 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
   const znodeTabs = ref<ZnodeTab[]>([]);
   const activeTab = computed(() => znodeTabs.value.find(item => item.isActive) ?? null);
 
+  const tabMatches = (tab: ZnodeTab, connectionUuid: string, path: string) =>
+    tab.connectionUuid === connectionUuid && tab.path === path;
+
+  const findTab = (connectionUuid: string, path: string) =>
+    znodeTabs.value.find(item => tabMatches(item, connectionUuid, path)) ?? null;
+
+  const hasDirtyTab = (connectionUuid: string, path: string) =>
+    findTab(connectionUuid, path)?.isDirty === true;
+
+  const hasDirtyTabsByConnection = (connectionUuid: string) =>
+    znodeTabs.value.some(item => item.connectionUuid === connectionUuid && item.isDirty);
+
+  const tabIsInSubtree = (tab: ZnodeTab, connectionUuid: string, path: string) =>
+    tab.connectionUuid === connectionUuid
+    && (tab.path === path || tab.path.startsWith(path === '/' ? '/' : `${path}/`));
+
+  const hasDirtyTabsByPathPrefix = (connectionUuid: string, path: string) =>
+    znodeTabs.value.some(item => tabIsInSubtree(item, connectionUuid, path) && item.isDirty);
+
+  const getDirtyTemporaryTabForReplacement = (connectionUuid: string, path: string) => {
+    if (findTab(connectionUuid, path)) return null;
+    return znodeTabs.value.find(item => item.isTemporary && item.isDirty) ?? null;
+  };
+
   // Add a new tab (for "Open in New Tab")
   // Returns true if tab existed and was activated, false if new tab was created
   const addTab = (newTab: ZnodeTab): boolean => {
-    const existed = znodeTabs.value.find(item => item.path === newTab.path);
+    const existed = znodeTabs.value.find(item => tabMatches(item, newTab.connectionUuid, newTab.path));
     if (existed) {
       // Update existing tab and set it as active
-      existed.connectionUuid = newTab.connectionUuid;
       existed.znodeData = newTab.znodeData;
       existed.stat = newTab.stat;
       existed.acl = newTab.acl;
@@ -34,7 +57,7 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
       existed.isDeleted = false;
       // Deactivate other tabs
       for (const item of znodeTabs.value) {
-        if (item.path !== newTab.path) {
+        if (item !== existed) {
           item.isActive = false;
         }
       }
@@ -60,11 +83,10 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
   // Returns true if existing tab was activated, false if new tab was created
   const replaceOrCreateTemporaryTab = (newTab: ZnodeTab): boolean => {
     // First check if this path already has an existing tab
-    const existingTab = znodeTabs.value.find(item => item.path === newTab.path);
+    const existingTab = znodeTabs.value.find(item => tabMatches(item, newTab.connectionUuid, newTab.path));
 
     if (existingTab) {
       // Update existing tab and set it as active
-      existingTab.connectionUuid = newTab.connectionUuid;
       existingTab.znodeData = newTab.znodeData;
       existingTab.stat = newTab.stat;
       existingTab.acl = newTab.acl;
@@ -118,24 +140,26 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
   }
 
   // Make a tab permanent (for double-click)
-  const makePermanent = (path: string) => {
-    const tab = znodeTabs.value.find(item => item.path === path);
+  const makePermanent = (connectionUuid: string, path: string) => {
+    const tab = znodeTabs.value.find(item => tabMatches(item, connectionUuid, path));
     if (tab) {
       tab.isTemporary = false;
     }
   }
 
-  const delTab = (path: string) => {
-    const deletingActive = activeTab.value?.path === path;
-    znodeTabs.value = znodeTabs.value.filter(item => item.path !== path);
+  const delTab = (connectionUuid: string, path: string) => {
+    const deletingActive = activeTab.value
+      ? tabMatches(activeTab.value, connectionUuid, path)
+      : false;
+    znodeTabs.value = znodeTabs.value.filter(item => !tabMatches(item, connectionUuid, path));
     if (deletingActive && znodeTabs.value.length) {
       znodeTabs.value[znodeTabs.value.length - 1].isActive = true;
     }
   }
 
   // Update tab data (without replacing the whole tab)
-  const updateTab = (path: string, updates: Partial<Pick<ZnodeTab, 'znodeData' | 'stat' | 'acl'>>) => {
-    const tab = znodeTabs.value.find(item => item.path === path);
+  const updateTab = (connectionUuid: string, path: string, updates: Partial<Pick<ZnodeTab, 'znodeData' | 'stat' | 'acl'>>) => {
+    const tab = znodeTabs.value.find(item => tabMatches(item, connectionUuid, path));
     if (tab) {
       if (updates.znodeData !== undefined) tab.znodeData = updates.znodeData;
       if (updates.stat !== undefined) tab.stat = updates.stat;
@@ -143,9 +167,9 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     }
   };
 
-  const setActiveTab = (path: string) => {
+  const setActiveTab = (connectionUuid: string, path: string) => {
     for (const item of znodeTabs.value) {
-      if (item.path === path) {
+      if (tabMatches(item, connectionUuid, path)) {
         item.isActive = true;
       } else {
         item.isActive = false;
@@ -153,22 +177,22 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     }
   }
 
-  const setDirty = (path: string, dirty: boolean) => {
-    const tab = znodeTabs.value.find(item => item.path === path);
+  const setDirty = (connectionUuid: string, path: string, dirty: boolean) => {
+    const tab = znodeTabs.value.find(item => tabMatches(item, connectionUuid, path));
     if (tab) {
       tab.isDirty = dirty;
     }
   }
 
-  const setWatching = (path: string, watching: boolean) => {
-    const tab = znodeTabs.value.find(item => item.path === path);
+  const setWatching = (connectionUuid: string, path: string, watching: boolean) => {
+    const tab = znodeTabs.value.find(item => tabMatches(item, connectionUuid, path));
     if (tab) {
       tab.isWatching = watching;
     }
   }
 
-  const setDeleted = (path: string, deleted: boolean) => {
-    const tab = znodeTabs.value.find(item => item.path === path);
+  const setDeleted = (connectionUuid: string, path: string, deleted: boolean) => {
+    const tab = znodeTabs.value.find(item => tabMatches(item, connectionUuid, path));
     if (tab) {
       tab.isDeleted = deleted;
     }
@@ -182,18 +206,28 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     }
   }
 
-  const closeOtherTabs = (path: string) => {
-    znodeTabs.value = znodeTabs.value.filter(item => item.path === path);
-    setActiveTab(path);
+  const closeTabsByPathPrefix = (connectionUuid: string, path: string) => {
+    const closingActive = activeTab.value
+      ? tabIsInSubtree(activeTab.value, connectionUuid, path)
+      : false;
+    znodeTabs.value = znodeTabs.value.filter(item => !tabIsInSubtree(item, connectionUuid, path));
+    if (closingActive && znodeTabs.value.length) {
+      znodeTabs.value[znodeTabs.value.length - 1].isActive = true;
+    }
   }
 
-  const closeTabsToRight = (path: string) => {
-    const currentIndex = znodeTabs.value.findIndex(item => item.path === path);
+  const closeOtherTabs = (connectionUuid: string, path: string) => {
+    znodeTabs.value = znodeTabs.value.filter(item => tabMatches(item, connectionUuid, path));
+    setActiveTab(connectionUuid, path);
+  }
+
+  const closeTabsToRight = (connectionUuid: string, path: string) => {
+    const currentIndex = znodeTabs.value.findIndex(item => tabMatches(item, connectionUuid, path));
     if (currentIndex === -1) {
       return;
     }
     znodeTabs.value = znodeTabs.value.filter((_, index) => index <= currentIndex);
-    setActiveTab(path);
+    setActiveTab(connectionUuid, path);
   }
 
   const clearTabs = () => {
@@ -203,6 +237,11 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
   return {
     znodeTabs,
     activeTab,
+    findTab,
+    hasDirtyTab,
+    hasDirtyTabsByConnection,
+    hasDirtyTabsByPathPrefix,
+    getDirtyTemporaryTabForReplacement,
     addTab,
     replaceOrCreateTemporaryTab,
     makePermanent,
@@ -216,5 +255,6 @@ export const useZnodeTabsStore = defineStore('znodeTabs', () => {
     setWatching,
     setDeleted,
     closeTabsByConnection,
+    closeTabsByPathPrefix,
   }
 })

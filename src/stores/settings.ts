@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { getDb } from '../db/db';
+import { appDataApi } from '../api/appData';
 import { i18n } from '../i18n';
 
 export interface AppSettings {
@@ -40,8 +40,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const load = async () => {
     try {
-      const db = await getDb();
-      const result = await db.select<{ key: string; value: string }[]>('SELECT * FROM settings');
+      const result = await appDataApi.loadSettings();
       for (const row of result) {
         if (row.key === 'language') settings.value.language = row.value as 'en' | 'zh';
         if (row.key === 'theme') settings.value.theme = row.value as 'light' | 'dark' | 'system';
@@ -60,10 +59,7 @@ export const useSettingsStore = defineStore('settings', () => {
   };
 
   const save = async () => {
-    const db = await getDb();
-    await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', ['language', settings.value.language]);
-    await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', ['theme', settings.value.theme]);
-    await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES ($1, $2)', ['scale', String(settings.value.scale)]);
+    await appDataApi.saveSettings(settings.value);
   };
 
   // Watch for changes and apply immediately

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { getDb } from '../db/db';
+import { appDataApi } from '../api/appData';
 
 export interface LogEntry {
   id: number;
@@ -19,19 +19,13 @@ export const useLogsStore = defineStore('logs', () => {
   const totalCount = ref(0);
 
   const loadLogs = async (page: number = 1) => {
-    const db = await getDb();
     try {
-      // Get total count
-      const countResult = await db.select<{ cnt: number }[]>('SELECT COUNT(*) as cnt FROM logs');
-      totalCount.value = countResult[0]?.cnt || 0;
-
-      // Get paginated data
-      const offset = (page - 1) * PAGE_SIZE;
-      const result = await db.select<LogEntry[]>(
-        'SELECT id, timestamp, connectionName, command, details, success FROM logs ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
-        [PAGE_SIZE, offset],
-      );
-      logs.value = result;
+      const result = await appDataApi.listLogs(page, PAGE_SIZE);
+      totalCount.value = result.totalCount;
+      logs.value = result.logs.map(log => ({
+        ...log,
+        details: log.details ?? '',
+      }));
       currentPage.value = page;
     } catch {
       logs.value = [];
@@ -39,12 +33,8 @@ export const useLogsStore = defineStore('logs', () => {
   };
 
   const addLog = async (connectionName: string, command: string, details: string, success = true) => {
-    const db = await getDb();
     try {
-      await db.execute(
-        'INSERT INTO logs (timestamp, connectionName, command, details, success) VALUES ($1, $2, $3, $4, $5)',
-        [Date.now(), connectionName, command, details, success ? 1 : 0],
-      );
+      await appDataApi.addLog(connectionName, command, details, success);
       // Refresh if on first page
       if (currentPage.value === 1) {
         await loadLogs(1);
@@ -55,9 +45,8 @@ export const useLogsStore = defineStore('logs', () => {
   };
 
   const clearLogs = async () => {
-    const db = await getDb();
     try {
-      await db.execute('DELETE FROM logs');
+      await appDataApi.clearLogs();
       logs.value = [];
       totalCount.value = 0;
       currentPage.value = 1;

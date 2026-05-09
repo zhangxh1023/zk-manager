@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { zkApi } from '../api/zk';
 import { useLogsStore } from './logs';
 import { useConnectionsStore } from './connections';
+import { getErrorMessage } from '../utils/errors';
 
 export interface ZkListNode {
   name: string;
@@ -77,7 +78,7 @@ export const useZkTreeStore = defineStore('zkTree', () => {
       await logsStore.addLog(connName, 'LIST_CHILDREN', `Listed children of ${path}, count: ${childNames.length}`, true);
       return childrenCache.value[key];
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = getErrorMessage(err);
       await logsStore.addLog(connName, 'LIST_CHILDREN', `Failed to list children of ${path}: ${errorMsg}`, false);
       throw err; // Re-throw to propagate error
     } finally {
