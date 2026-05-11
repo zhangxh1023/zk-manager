@@ -41,6 +41,7 @@ const logsStore = useLogsStore();
 const showCreateDialog = ref(false);
 const newChildName = ref('');
 const newChildData = ref('');
+const createMissingParents = ref(false);
 
 // Delete dialog state
 const showDeleteDialog = ref(false);
@@ -107,16 +108,30 @@ const handleOpenInTab = async () => {
 const openCreateDialog = () => {
   newChildName.value = '';
   newChildData.value = '';
+  createMissingParents.value = false;
   showCreateDialog.value = true;
 };
 
+const buildChildPath = (parentPath: string, childName: string) => {
+  const relativePath = childName.trim().split('/').filter(Boolean).join('/');
+  if (!relativePath) return '';
+  return parentPath === '/' ? `/${relativePath}` : `${parentPath}/${relativePath}`;
+};
+
 const createChildNode = async () => {
-  if (!newChildName.value.trim()) return;
-  const childPath = props.node.path === '/' ? `/${newChildName.value.trim()}` : `${props.node.path}/${newChildName.value.trim()}`;
+  const childPath = buildChildPath(props.node.path, newChildName.value);
+  if (!childPath) return;
   const data = Array.from(new TextEncoder().encode(newChildData.value));
   try {
-    await zkApi.createNode(props.connectionUuid, childPath, data);
-    await logsStore.addLog(props.connectionUuid, 'CREATE', `Created node ${childPath}`);
+    if (createMissingParents.value) {
+      await zkApi.createNodeRecursive(props.connectionUuid, childPath, data);
+    } else {
+      await zkApi.createNode(props.connectionUuid, childPath, data);
+    }
+    const logMessage = createMissingParents.value
+      ? `Recursively created node ${childPath}`
+      : `Created node ${childPath}`;
+    await logsStore.addLog(props.connectionUuid, 'CREATE', logMessage);
     await zkTreeStore.onNodeCreated(props.connectionUuid, props.node.path);
     showCreateDialog.value = false;
     showToast.success(t('node.createSuccess', { path: childPath }));
@@ -231,6 +246,14 @@ const confirmDelete = async () => {
               :placeholder="t('createNode.placeholder.data')"
             />
           </div>
+          <label class="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              v-model="createMissingParents"
+              type="checkbox"
+              class="size-4 rounded border-input"
+            >
+            <span>{{ t('createNode.createMissingParents') }}</span>
+          </label>
         </div>
         <DialogFooter>
           <Button

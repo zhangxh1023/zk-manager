@@ -134,10 +134,11 @@ export default {
   },
   createNode: {
     title: 'Create Child Node',
-    nodeName: 'node name',
+    nodeName: 'node name or relative path',
     nodeData: 'node data (optional)',
+    createMissingParents: 'Create missing parent nodes',
     placeholder: {
-      name: 'enter node name',
+      name: 'e.g. app/config/db',
       data: 'enter node data',
     },
   },

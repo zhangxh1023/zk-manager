@@ -643,6 +643,47 @@ async fn create_node(
 }
 
 #[tauri::command]
+async fn create_node_recursive(
+  state: tauri::State<'_, ZkClient>,
+  connection_uuid: String,
+  path: String,
+  data: Vec<u8>,
+) -> AppResult<String> {
+  let path = normalize_zk_path(&path);
+  if path == "/" {
+    return Err(AppError::new(
+      "VALIDATION_ERROR",
+      "Root node cannot be created",
+    ));
+  }
+
+  let client_arc = client_for(&state, &connection_uuid)?;
+  let options = CreateMode::Persistent.with_acls(Acls::anyone_all());
+  let parent_path = path
+    .rsplit_once('/')
+    .map(|(parent, _)| parent)
+    .unwrap_or("/");
+  let parent_path = if parent_path.is_empty() {
+    "/"
+  } else {
+    parent_path
+  };
+
+  if parent_path != "/" {
+    client_arc
+      .mkdir(parent_path, &options)
+      .await
+      .map_err(|e| zk_error(e, "Failed to create parent nodes"))?;
+  }
+
+  client_arc
+    .create(&path, data.as_slice(), &options)
+    .await
+    .map_err(|e| zk_error(e, "Failed to create node recursively"))?;
+  Ok("SUCCESS".to_string())
+}
+
+#[tauri::command]
 async fn set_acl(
   state: tauri::State<'_, ZkClient>,
   connection_uuid: String,
@@ -889,6 +930,7 @@ pub fn run() {
       delete_node,
       delete_node_recursive,
       create_node,
+      create_node_recursive,
       set_acl,
       watch_node,
       unwatch_node,

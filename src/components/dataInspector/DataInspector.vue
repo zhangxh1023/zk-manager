@@ -62,6 +62,7 @@ const originalValue = ref<string | null>(null);
 const showCreateDialog = ref(false);
 const newNodeName = ref('');
 const newNodeData = ref('');
+const createMissingParents = ref(false);
 
 // ACL editing
 const editingAcl = ref<ZkAclEntry | null>(null);
@@ -273,6 +274,8 @@ const removeNode = async () => {
 const openCreateDialog = () => {
   newNodeName.value = '';
   newNodeData.value = '';
+  createMissingParents.value = false;
+  errorMessage.value = '';
   showCreateDialog.value = true;
 };
 
@@ -392,20 +395,33 @@ onUnmounted(() => {
   }
 });
 
+const buildChildPath = (parentPath: string, childName: string) => {
+  const relativePath = childName.trim().split('/').filter(Boolean).join('/');
+  if (!relativePath) return '';
+  return parentPath === '/' ? `/${relativePath}` : `${parentPath}/${relativePath}`;
+};
+
 // Create child node
 const createChildNode = async () => {
-  if (!newNodeName.value.trim()) {
+  const childPath = buildChildPath(props.tab.path, newNodeName.value);
+  if (!childPath) {
     errorMessage.value = 'Node name cannot be empty';
     return;
   }
-  const childPath = props.tab.path === '/' ? `/${newNodeName.value.trim()}` : `${props.tab.path}/${newNodeName.value.trim()}`;
   isSubmitting.value = true;
   errorMessage.value = '';
   try {
     const encoder = new TextEncoder();
     const data = Array.from(encoder.encode(newNodeData.value));
-    await zkApi.createNode(props.tab.connectionUuid, childPath, data);
-    await logsStore.addLog('current', 'CREATE', `Created node ${childPath}`);
+    if (createMissingParents.value) {
+      await zkApi.createNodeRecursive(props.tab.connectionUuid, childPath, data);
+    } else {
+      await zkApi.createNode(props.tab.connectionUuid, childPath, data);
+    }
+    const logMessage = createMissingParents.value
+      ? `Recursively created node ${childPath}`
+      : `Created node ${childPath}`;
+    await logsStore.addLog('current', 'CREATE', logMessage);
     await zkTreeStore.onNodeCreated(props.tab.connectionUuid, props.tab.path);
     showCreateDialog.value = false;
     showToast.success(t('node.createSuccess', { path: childPath }));
@@ -904,6 +920,14 @@ const getNodeName = (path: string) => {
               class="font-mono text-xs"
             />
           </div>
+          <label class="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              v-model="createMissingParents"
+              type="checkbox"
+              class="size-4 rounded border-input"
+            >
+            <span>{{ t('createNode.createMissingParents') }}</span>
+          </label>
           <p
             v-if="errorMessage"
             class="text-sm text-red-500"

@@ -14,13 +14,15 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 - [x] Create, edit, delete ZooKeeper connections
 - [x] Username/password authentication
 - [x] SSH tunnel support (password auth, key auth)
-- [x] Save connection config to local SQLite database
+- [x] Save connection metadata to local SQLite database
+- [x] Store ZooKeeper and SSH passwords in the system keychain
 - [x] One-click connect/disconnect
 
 #### Node Browsing
 - [x] Tree list navigation (click to enter child nodes)
 - [x] Breadcrumb path navigation
 - [x] Quick jump to specified path
+- [x] Search nodes under the current path
 - [x] Refresh current node
 - [x] Navigate to parent directory
 
@@ -28,7 +30,8 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 - [x] View node data (JSON, XML, Text, Hex, Binary formats)
 - [x] View node details (ACL, Stat metadata)
 - [x] Create node (persistent node)
-- [x] Delete node
+- [x] Recursive node path creation
+- [x] Delete node, including recursive delete for non-empty nodes
 - [x] Modify node data
 
 #### ACL Management
@@ -37,7 +40,7 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 
 #### Auxiliary Features
 - [x] Operation log history
-- [x] Dark/light theme toggle
+- [x] Light/dark/system theme selection
 - [x] UI scaling (80% - 200%)
 - [x] Chinese/English language toggle
 
@@ -52,7 +55,6 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 
 #### Node Operations
 - [ ] Batch delete nodes
-- [ ] Recursive node path creation
 - [ ] Export/import node data
 - [ ] Node data comparison
 
@@ -62,7 +64,6 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 
 #### Others
 - [ ] Node historical version viewing
-- [ ] Search functionality
 - [ ] Keyboard shortcuts
 - [ ] Import/export connection configurations
 
@@ -81,11 +82,13 @@ zk-manager/
 │   ├── stores/                  # Pinia state management
 │   ├── types/                   # TypeScript type definitions
 │   ├── utils/                   # Utility functions
-│   ├── i18n/                   # Internationalization config
-│   └── db/                      # Database operations
+│   ├── lib/                     # Shared frontend helpers
+│   └── i18n/                    # Internationalization config
 ├── src-tauri/                   # Tauri/Rust backend source
 │   └── src/
 │       ├── lib.rs               # Main library and Tauri commands
+│       ├── database.rs          # SQLite persistence
+│       ├── secrets.rs           # System keychain integration
 │       ├── ssh_tunnel.rs        # SSH tunnel implementation
 │       └── migrations.rs         # Database migrations
 └── dist/                        # Build output

@@ -134,10 +134,11 @@ export default {
   },
   createNode: {
     title: '创建子节点',
-    nodeName: '节点名称',
+    nodeName: '节点名称或相对路径',
     nodeData: '节点数据（可选）',
+    createMissingParents: '创建缺失的父节点',
     placeholder: {
-      name: '请输入节点名称',
+      name: '例如 app/config/db',
       data: '请输入节点数据',
     },
   },

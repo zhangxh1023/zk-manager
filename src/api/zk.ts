@@ -13,6 +13,7 @@ export enum Command {
   delete_node = 'delete_node',
   delete_node_recursive = 'delete_node_recursive',
   create_node = 'create_node',
+  create_node_recursive = 'create_node_recursive',
   set_acl = 'set_acl',
   watch_node = 'watch_node',
   unwatch_node = 'unwatch_node',
@@ -49,6 +50,7 @@ export interface CommandArgs {
   [Command.delete_node]: { connectionUuid: string; path: string };
   [Command.delete_node_recursive]: { connectionUuid: string; path: string };
   [Command.create_node]: { connectionUuid: string; path: string; data: number[] };
+  [Command.create_node_recursive]: { connectionUuid: string; path: string; data: number[] };
   [Command.set_acl]: { connectionUuid: string; path: string; aclEntries: ZkAclEntry[]; version: number };
   [Command.watch_node]: { connectionUuid: string; path: string };
   [Command.unwatch_node]: { connectionUuid: string; path: string };
@@ -66,6 +68,7 @@ export interface CommandReturns {
   [Command.delete_node]: string;
   [Command.delete_node_recursive]: string;
   [Command.create_node]: string;
+  [Command.create_node_recursive]: string;
   [Command.set_acl]: string;
   [Command.watch_node]: string;
   [Command.unwatch_node]: string;
@@ -115,6 +118,8 @@ export const zkApi = {
   setData: (connectionUuid: string, path: string, data: number[], version: number) =>
     invoke(Command.set_data, { connectionUuid, path, data, version }),
   createNode: (connectionUuid: string, path: string, data: number[] = []) => invoke(Command.create_node, { connectionUuid, path, data }),
+  createNodeRecursive: (connectionUuid: string, path: string, data: number[] = []) =>
+    invoke(Command.create_node_recursive, { connectionUuid, path, data }),
   deleteNode: (connectionUuid: string, path: string) => invoke(Command.delete_node, { connectionUuid, path }),
   deleteNodeRecursive: (connectionUuid: string, path: string) =>
     invoke(Command.delete_node_recursive, { connectionUuid, path }),
