@@ -32,6 +32,7 @@ import type { ZkAclEntry, ZkStat } from '../../types/znodeDetails';
 import { showToast } from '../../utils/toast';
 import { getErrorCode, getErrorMessage } from '../../utils/errors';
 import { formatBytes, parseBytes, type SerializationFormat } from '../../utils/serializer';
+import { confirmDialog } from '../../composables/useConfirmDialog';
 
 // Viewer components
 import TextViewer from './components/TextViewer.vue';
@@ -106,13 +107,13 @@ const formatTimestamp = (value: number) => {
 watch(() => props.tab.znodeData, syncEditValue, { immediate: true });
 
 let revertingFormat = false;
-watch(dataFormat, (_, oldFormat) => {
+watch(dataFormat, async (_, oldFormat) => {
   if (revertingFormat) {
     revertingFormat = false;
     return;
   }
 
-  if (hasUnsavedChanges() && !window.confirm(t('tabs.confirmFormatDirty'))) {
+  if (hasUnsavedChanges() && !(await confirmDialog(t('tabs.confirmFormatDirty')))) {
     revertingFormat = true;
     dataFormat.value = oldFormat;
     return;
@@ -159,7 +160,7 @@ const statRows = computed(() => {
 });
 
 const refresh = async () => {
-  if (hasUnsavedChanges() && !window.confirm(t('tabs.confirmRefreshDirty'))) {
+  if (hasUnsavedChanges() && !(await confirmDialog(t('tabs.confirmRefreshDirty')))) {
     return;
   }
   isSubmitting.value = true;
@@ -215,13 +216,20 @@ const save = async () => {
     await logsStore.addLog('current', 'SET_DATA', `Updated data of ${props.tab.path}`);
     showToast.success(t('node.saveSuccess'));
   } catch (error: unknown) {
-    if (
-      getErrorCode(error) === 'NOT_EMPTY'
-      && window.confirm(t('node.confirmRecursiveDelete', { path: props.tab.path }))
-    ) {
+    const shouldDeleteRecursive = getErrorCode(error) === 'NOT_EMPTY'
+      && await confirmDialog({
+        message: t('node.confirmRecursiveDelete', { path: props.tab.path }),
+        variant: 'destructive',
+        confirmText: t('node.delete'),
+      });
+    if (shouldDeleteRecursive) {
       if (
         znodeTabsStore.hasDirtyTabsByPathPrefix(props.tab.connectionUuid, props.tab.path)
-        && !window.confirm(t('tabs.confirmRecursiveDeleteDirty'))
+        && !(await confirmDialog({
+          message: t('tabs.confirmRecursiveDeleteDirty'),
+          variant: 'destructive',
+          confirmText: t('node.delete'),
+        }))
       ) {
         return;
       }

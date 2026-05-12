@@ -99,6 +99,20 @@ fn keychain_error(error: impl ToString) -> AppError {
   )
 }
 
+fn ssh_tunnel_error(error: String) -> AppError {
+  if error.starts_with("SSH host key is not trusted.") {
+    AppError::with_detail(
+      "SSH_HOST_KEY_UNTRUSTED",
+      "SSH host key is not trusted",
+      error,
+    )
+  } else if error.starts_with("SSH host key changed") {
+    AppError::with_detail("SSH_HOST_KEY_CHANGED", "SSH host key changed", error)
+  } else {
+    AppError::with_detail("SSH_TUNNEL_ERROR", "SSH tunnel failed", error)
+  }
+}
+
 fn client_for(state: &tauri::State<'_, ZkClient>, connection_uuid: &str) -> AppResult<Arc<Client>> {
   let guard = state
     .clients
@@ -184,6 +198,8 @@ struct ConnectZkRequest {
   ssh_auth_method: Option<String>,
   ssh_password: Option<String>,
   ssh_key_path: Option<String>,
+  #[serde(default)]
+  trust_unknown_ssh_host_key: bool,
 }
 
 #[tauri::command]
@@ -203,6 +219,7 @@ async fn connect_zk(
     ssh_auth_method,
     ssh_password,
     ssh_key_path,
+    trust_unknown_ssh_host_key,
   } = request;
   println!("尝试连接 ZK: {} uuid: {}", server, connection_uuid);
 
@@ -251,11 +268,12 @@ async fn connect_zk(
       ssh_auth_method: auth_method,
       target_host: zk_server_host,
       target_port: zk_server_port,
+      trust_unknown_host_key: trust_unknown_ssh_host_key,
     };
 
     let tunnel = ssh_tunnel::create_tunnel(&tunnel_config)
       .await
-      .map_err(|error| AppError::with_detail("SSH_TUNNEL_ERROR", "SSH tunnel failed", error))?;
+      .map_err(ssh_tunnel_error)?;
 
     println!("SSH 隧道已建立，本地端口: {}", tunnel.local_port);
 
@@ -321,13 +339,12 @@ async fn connect_zk(
 }
 
 #[tauri::command]
-async fn set_connection_secret(
+async fn set_connection_secrets(
   connection_uuid: String,
-  secret_key: String,
-  secret: Option<String>,
+  secrets: secrets::ConnectionSecrets,
 ) -> AppResult<()> {
   tauri::async_runtime::spawn_blocking(move || {
-    secrets::set_connection_secret(&connection_uuid, &secret_key, secret)
+    secrets::set_connection_secrets(&connection_uuid, secrets)
   })
   .await
   .map_err(keychain_error)?
@@ -335,16 +352,11 @@ async fn set_connection_secret(
 }
 
 #[tauri::command]
-async fn get_connection_secret(
-  connection_uuid: String,
-  secret_key: String,
-) -> AppResult<Option<String>> {
-  tauri::async_runtime::spawn_blocking(move || {
-    secrets::get_connection_secret(&connection_uuid, &secret_key)
-  })
-  .await
-  .map_err(keychain_error)?
-  .map_err(keychain_error)
+async fn get_connection_secrets(connection_uuid: String) -> AppResult<secrets::ConnectionSecrets> {
+  tauri::async_runtime::spawn_blocking(move || secrets::get_connection_secrets(&connection_uuid))
+    .await
+    .map_err(keychain_error)?
+    .map_err(keychain_error)
 }
 
 #[tauri::command]
@@ -934,8 +946,8 @@ pub fn run() {
       set_acl,
       watch_node,
       unwatch_node,
-      set_connection_secret,
-      get_connection_secret,
+      set_connection_secrets,
+      get_connection_secrets,
       delete_connection_secrets,
       database::list_connections,
       database::get_connection_legacy_secrets,

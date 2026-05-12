@@ -9,6 +9,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { zkApi, type ZnodeSearchResult } from '../../api/zk';
 import { showToast } from '../../utils/toast';
 import { useI18n } from 'vue-i18n';
+import { confirmDialog } from '../../composables/useConfirmDialog';
 
 const props = defineProps<{
   connectionUuid: string;
@@ -142,7 +143,7 @@ const openNodePath = async (path: string) => {
       props.connectionUuid,
       path,
     );
-    if (dirtyTemporaryTab && !window.confirm(t('tabs.confirmReplaceDirty'))) {
+    if (dirtyTemporaryTab && !(await confirmDialog(t('tabs.confirmReplaceDirty')))) {
       return;
     }
 

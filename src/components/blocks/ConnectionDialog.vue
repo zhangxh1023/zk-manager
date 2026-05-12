@@ -151,14 +151,14 @@ const handleTest = () => {
                     for="password"
                     class="text-xs uppercase tracking-wider text-muted-foreground font-semibold"
                   >
-                    {{ t('connection.password') }}
+                    {{ t('connection.zkPassword') }}
                   </Label>
                   <div class="relative">
                     <Input
                       id="password"
                       v-model="conn.password"
                       :type="showPassword ? 'text' : 'password'"
-                      placeholder="Optional"
+                      :placeholder="t('connection.zkPasswordPlaceholder')"
                     />
                     <Button
                       :aria-label="showPassword ? 'Hide password' : 'Show password'"
@@ -257,10 +257,11 @@ const handleTest = () => {
                 v-if="conn.ssh_auth_method === 'password'"
                 class="grid gap-2 mt-2"
               >
+                <Label class="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{{ t('connection.sshPassword') }}</Label>
                 <Input
                   v-model="conn.ssh_password"
                   type="password"
-                  placeholder="SSH Password"
+                  :placeholder="t('connection.sshPasswordPlaceholder')"
                 />
               </div>
               <div

@@ -11,6 +11,7 @@ import { useConnectionsStore } from './stores/connections';
 import { useSettingsStore } from './stores/settings';
 import { useI18n } from 'vue-i18n';
 import { Toaster } from './components/ui/sonner';
+import ConfirmDialogHost from './components/ui/confirm-dialog/ConfirmDialogHost.vue';
 import 'vue-sonner/style.css';
 
 const connectionsStore = useConnectionsStore();
@@ -38,6 +39,7 @@ onMounted(async () => {
         <RightBlock />
       </ResizablePanel>
     </ResizablePanelGroup>
+    <ConfirmDialogHost />
     <Toaster position="bottom-right" />
   </div>
 </template>

@@ -9,15 +9,16 @@ import {
   TooltipTrigger,
 } from '../ui/tooltip';
 import DataInspector from '../dataInspector/DataInspector.vue';
+import { confirmDialog } from '../../composables/useConfirmDialog';
 
 const { t } = useI18n();
 const znodeTabsStore = useZnodeTabsStore();
 
-const closeTab = (connectionUuid: string, path: string, event: Event) => {
+const closeTab = async (connectionUuid: string, path: string, event: Event) => {
   event.stopPropagation();
   if (
     znodeTabsStore.hasDirtyTab(connectionUuid, path)
-    && !window.confirm(t('tabs.confirmCloseDirty'))
+    && !(await confirmDialog(t('tabs.confirmCloseDirty')))
   ) {
     return;
   }

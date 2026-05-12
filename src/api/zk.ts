@@ -31,6 +31,7 @@ export interface ConnectZkRequest {
   sshAuthMethod?: string;
   sshPassword?: string;
   sshKeyPath?: string;
+  trustUnknownSshHostKey?: boolean;
 }
 
 export interface ZnodeSearchResult {
@@ -94,6 +95,7 @@ export const zkApi = {
     sshAuthMethod?: string,
     sshPassword?: string,
     sshKeyPath?: string,
+    trustUnknownSshHostKey?: boolean,
   ) => invoke(Command.connect_zk, {
     request: {
       connectionUuid,
@@ -107,6 +109,7 @@ export const zkApi = {
       sshAuthMethod,
       sshPassword,
       sshKeyPath,
+      trustUnknownSshHostKey,
     },
   }),
   disconnect: (connectionUuid: string) => invoke(Command.disconnect_zk, { connectionUuid }),

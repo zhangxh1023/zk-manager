@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { appDataApi } from '../api/appData';
 import { zkApi } from '../api/zk';
-import { secretsApi, type ConnectionSecretKey } from '../api/secrets';
+import { secretsApi } from '../api/secrets';
 import { useLogsStore } from './logs';
 import { getErrorMessage } from '../utils/errors';
 
@@ -21,79 +21,45 @@ export interface Connection {
   ssh_key_path?: string;
 }
 
-type ConnectionSecrets = Pick<Connection, 'password' | 'ssh_password'>;
+type ConnectionSecrets = Partial<Pick<Connection, 'password' | 'ssh_password'>>;
+
+type LoadConnectionSecretsOptions = {
+  password?: boolean;
+  sshPassword?: boolean;
+};
+
+type ConnectConnectionOptions = {
+  trustUnknownSshHostKey?: boolean;
+};
+
+const normalizeSecrets = (secrets: ConnectionSecrets): ConnectionSecrets => ({
+  password: secrets.password || undefined,
+  ssh_password: secrets.ssh_password || undefined,
+});
 
 export const useConnectionsStore = defineStore('connections', () => {
   const connections = ref<Connection[]>([]);
   const connectedSet = ref<Set<string>>(new Set());
   const connectingSet = ref<Set<string>>(new Set());
   const expandedSet = ref<Set<string>>(new Set());
-
-  const clearLegacySecret = async (uuid: string, secretKey: ConnectionSecretKey) => {
-    await appDataApi.clearLegacyConnectionSecret(uuid, secretKey);
-  };
-
-  const migrateLegacySecret = async (
-    uuid: string,
-    secretKey: ConnectionSecretKey,
-    legacySecret: string | null,
-  ) => {
-    if (!legacySecret) return;
-    try {
-      const existingSecret = await secretsApi.getConnectionSecret(uuid, secretKey);
-      if (!existingSecret) {
-        await secretsApi.setConnectionSecret(uuid, secretKey, legacySecret);
-      }
-      await clearLegacySecret(uuid, secretKey);
-    } catch (error) {
-      console.warn(`Failed to migrate ${secretKey} to system keychain:`, error);
-    }
-  };
-
-  const readSecret = async (
-    uuid: string,
-    secretKey: ConnectionSecretKey,
-    legacySecret: string | null,
-  ): Promise<string | undefined> => {
-    try {
-      const secret = await secretsApi.getConnectionSecret(uuid, secretKey);
-      if (secret) return secret;
-      if (legacySecret) {
-        await secretsApi.setConnectionSecret(uuid, secretKey, legacySecret);
-        await clearLegacySecret(uuid, secretKey);
-        return legacySecret;
-      }
-    } catch (error) {
-      if (legacySecret) return legacySecret;
-      console.warn(`Failed to read ${secretKey} from system keychain:`, error);
-    }
-    return undefined;
-  };
+  const secretCache = new Map<string, ConnectionSecrets>();
 
   const saveConnectionSecrets = async (conn: Connection) => {
-    if (conn.password) {
-      await secretsApi.setConnectionSecret(conn.uuid, 'password', conn.password);
-    } else {
-      await secretsApi.setConnectionSecret(conn.uuid, 'password', null).catch(error => {
-        console.warn('Failed to delete ZK password from system keychain:', error);
-      });
-    }
-
-    if (conn.use_ssh && conn.ssh_auth_method === 'password' && conn.ssh_password) {
-      await secretsApi.setConnectionSecret(conn.uuid, 'ssh_password', conn.ssh_password);
-    } else {
-      await secretsApi.setConnectionSecret(conn.uuid, 'ssh_password', null).catch(error => {
-        console.warn('Failed to delete SSH password from system keychain:', error);
-      });
-    }
+    const secrets = normalizeSecrets({
+      password: conn.password,
+      ssh_password: conn.use_ssh && conn.ssh_auth_method === 'password'
+        ? conn.ssh_password
+        : undefined,
+    });
+    await secretsApi.setConnectionSecrets(conn.uuid, {
+      password: secrets.password || null,
+      sshPassword: secrets.ssh_password || null,
+    });
+    secretCache.set(conn.uuid, secrets);
   };
 
   const reloadConnections = async () => {
     const result = await appDataApi.listConnections();
-    await Promise.all(result.map(async item => {
-      await migrateLegacySecret(item.uuid, 'password', item.password);
-      await migrateLegacySecret(item.uuid, 'ssh_password', item.ssh_password);
-    }));
     connections.value = result.map(item => ({
       uuid: item.uuid,
       url: item.url,
@@ -108,12 +74,27 @@ export const useConnectionsStore = defineStore('connections', () => {
     }));
   };
 
-  const loadConnectionSecrets = async (uuid: string): Promise<ConnectionSecrets> => {
-    const row = await appDataApi.getConnectionLegacySecrets(uuid);
-    return {
-      password: await readSecret(uuid, 'password', row?.password ?? null),
-      ssh_password: await readSecret(uuid, 'ssh_password', row?.ssh_password ?? null),
-    };
+  const loadConnectionSecrets = async (
+    uuid: string,
+    options: LoadConnectionSecretsOptions = { password: true, sshPassword: true },
+  ): Promise<ConnectionSecrets> => {
+    let savedSecrets = secretCache.get(uuid);
+    if (!savedSecrets) {
+      const keychainSecrets = await secretsApi.getConnectionSecrets(uuid);
+      savedSecrets = normalizeSecrets({
+        password: keychainSecrets.password || undefined,
+        ssh_password: keychainSecrets.sshPassword || undefined,
+      });
+      secretCache.set(uuid, savedSecrets);
+    }
+    const secrets: ConnectionSecrets = {};
+    if (options.password) {
+      secrets.password = savedSecrets.password || undefined;
+    }
+    if (options.sshPassword) {
+      secrets.ssh_password = savedSecrets.ssh_password || undefined;
+    }
+    return secrets;
   };
 
   const addConnection = async (conn: Connection) => {
@@ -121,6 +102,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     try {
       await appDataApi.insertConnection(conn);
     } catch (error) {
+      secretCache.delete(conn.uuid);
       await secretsApi.deleteConnectionSecrets(conn.uuid).catch(() => {});
       throw error;
     }
@@ -138,6 +120,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     await secretsApi.deleteConnectionSecrets(uuid).catch(error => {
       console.warn('Failed to delete connection secrets from system keychain:', error);
     });
+    secretCache.delete(uuid);
     await reloadConnections();
   };
 
@@ -145,9 +128,14 @@ export const useConnectionsStore = defineStore('connections', () => {
   const isConnecting = (uuid: string) => connectingSet.value.has(uuid);
   const isExpanded = (uuid: string) => expandedSet.value.has(uuid);
 
-  const connectConnection = async (conn: Connection) => {
+  const connectConnection = async (conn: Connection, options: ConnectConnectionOptions = {}) => {
     const logsStore = useLogsStore();
-    const secrets = await loadConnectionSecrets(conn.uuid);
+    console.info('connection:load_secrets:start', conn.uuid);
+    const secrets = await loadConnectionSecrets(conn.uuid, {
+      password: Boolean(conn.username),
+      sshPassword: Boolean(conn.use_ssh && conn.ssh_auth_method !== 'key'),
+    });
+    console.info('connection:load_secrets:done', conn.uuid);
     try {
       await zkApi.connect(
         conn.uuid,
@@ -161,6 +149,7 @@ export const useConnectionsStore = defineStore('connections', () => {
         conn.ssh_auth_method,
         secrets.ssh_password,
         conn.ssh_key_path,
+        options.trustUnknownSshHostKey,
       );
       connectedSet.value.add(conn.uuid);
       expandedSet.value.add(conn.uuid);
@@ -189,7 +178,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     await logsStore.addLog(conn.name || conn.uuid, 'DISCONNECT', `Disconnected from ${conn.url}`);
   };
 
-  const toggleConnection = async (conn: Connection) => {
+  const toggleConnection = async (conn: Connection, options: ConnectConnectionOptions = {}) => {
     if (connectingSet.value.has(conn.uuid)) return;
     if (connectedSet.value.has(conn.uuid)) {
       if (expandedSet.value.has(conn.uuid)) {
@@ -202,7 +191,7 @@ export const useConnectionsStore = defineStore('connections', () => {
 
     connectingSet.value.add(conn.uuid);
     try {
-      await connectConnection(conn);
+      await connectConnection(conn, options);
     } finally {
       connectingSet.value.delete(conn.uuid);
     }

@@ -1,25 +1,21 @@
 import { invoke } from '@tauri-apps/api/core';
 
-export type ConnectionSecretKey = 'password' | 'ssh_password';
+export interface ConnectionSecrets {
+  password?: string | null;
+  sshPassword?: string | null;
+}
 
 export const secretsApi = {
-  setConnectionSecret: (
+  setConnectionSecrets: (
     connectionUuid: string,
-    secretKey: ConnectionSecretKey,
-    secret?: string | null,
-  ) => invoke<void>('set_connection_secret', {
+    secrets: ConnectionSecrets,
+  ) => invoke<void>('set_connection_secrets', {
     connectionUuid,
-    secretKey,
-    secret: secret || null,
+    secrets,
   }),
 
-  getConnectionSecret: (
-    connectionUuid: string,
-    secretKey: ConnectionSecretKey,
-  ) => invoke<string | null>('get_connection_secret', {
-    connectionUuid,
-    secretKey,
-  }),
+  getConnectionSecrets: (connectionUuid: string) =>
+    invoke<ConnectionSecrets>('get_connection_secrets', { connectionUuid }),
 
   deleteConnectionSecrets: (connectionUuid: string) =>
     invoke<void>('delete_connection_secrets', { connectionUuid }),

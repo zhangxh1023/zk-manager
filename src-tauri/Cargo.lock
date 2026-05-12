@@ -7112,6 +7112,7 @@ dependencies = [
  "async-trait",
  "keyring",
  "russh",
+ "security-framework 3.6.0",
  "serde",
  "serde_json",
  "sqlx",

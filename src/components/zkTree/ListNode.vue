@@ -25,6 +25,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { showToast } from '../../utils/toast';
 import { getErrorCode, getErrorMessage } from '../../utils/errors';
+import { confirmDialog } from '../../composables/useConfirmDialog';
 
 const { t } = i18n.global;
 
@@ -54,7 +55,7 @@ const handleNavigate = async () => {
       props.connectionUuid,
       props.node.path,
     );
-    if (dirtyTemporaryTab && !window.confirm(t('tabs.confirmReplaceDirty'))) {
+    if (dirtyTemporaryTab && !(await confirmDialog(t('tabs.confirmReplaceDirty')))) {
       return;
     }
     await zkTreeStore.navigateTo(props.connectionUuid, props.node.path);
@@ -156,13 +157,20 @@ const confirmDelete = async () => {
     showDeleteDialog.value = false;
     showToast.success(t('node.deleteSuccess'));
   } catch (err: unknown) {
-    if (
-      getErrorCode(err) === 'NOT_EMPTY'
-      && window.confirm(t('node.confirmRecursiveDelete', { path: props.node.path }))
-    ) {
+    const shouldDeleteRecursive = getErrorCode(err) === 'NOT_EMPTY'
+      && await confirmDialog({
+        message: t('node.confirmRecursiveDelete', { path: props.node.path }),
+        variant: 'destructive',
+        confirmText: t('node.delete'),
+      });
+    if (shouldDeleteRecursive) {
       if (
         znodeTabsStore.hasDirtyTabsByPathPrefix(props.connectionUuid, props.node.path)
-        && !window.confirm(t('tabs.confirmRecursiveDeleteDirty'))
+        && !(await confirmDialog({
+          message: t('tabs.confirmRecursiveDeleteDirty'),
+          variant: 'destructive',
+          confirmText: t('node.delete'),
+        }))
       ) {
         return;
       }
@@ -198,7 +206,7 @@ const confirmDelete = async () => {
 <template>
   <div class="list-node group">
     <ContextMenu>
-      <ContextMenuTrigger>
+      <ContextMenuTrigger as-child>
         <div
           class="flex items-center px-3 py-1.5 hover:bg-accent/70 cursor-pointer transition-colors mx-1"
           @click="handleNavigate"
@@ -209,15 +217,18 @@ const confirmDelete = async () => {
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem @click="handleOpenInTab">
+        <ContextMenuItem @select="handleOpenInTab">
           {{ t('node.openInNewTab') }}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem @click="openCreateDialog">
+        <ContextMenuItem @select="openCreateDialog">
           {{ t('node.createChild') }}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem @click="openDeleteDialog">
+        <ContextMenuItem
+          variant="destructive"
+          @select="openDeleteDialog"
+        >
           {{ t('node.delete') }}
         </ContextMenuItem>
       </ContextMenuContent>

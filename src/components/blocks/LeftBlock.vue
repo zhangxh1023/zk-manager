@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ChevronRight, ChevronDown, Settings, ClipboardClock, Database } from 'lucide-vue-next';
 import ZkList from '../zkTree/ZkList.vue';
 import { useConnectionsStore, type Connection } from '../../stores/connections';
@@ -8,12 +8,14 @@ import { zkApi } from '../../api/zk';
 import { useLogsStore } from '../../stores/logs';
 import { useI18n } from 'vue-i18n';
 import { showToast } from '../../utils/toast';
-import { getErrorMessage } from '../../utils/errors';
+import { getErrorMessage, isSshHostKeyUntrustedError } from '../../utils/errors';
 import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '../ui/context-menu';
 import ConnectionDialog from './ConnectionDialog.vue';
 import AppMenus from '../appMenus/AppMenus.vue';
+import { confirmDialog } from '../../composables/useConfirmDialog';
 
 const { t } = useI18n();
 const connectionsStore = useConnectionsStore();
@@ -27,6 +29,46 @@ const activeConnectionToEdit = ref<Connection | null>(null);
 const connectionDialogSaving = ref(false);
 const connectionDialogTesting = ref(false);
 const connectionDialogError = ref('');
+const connectionToDelete = ref<Connection | null>(null);
+const isDeletingConnection = ref(false);
+const showDeleteConnectionDialog = computed({
+  get: () => Boolean(connectionToDelete.value),
+  set: (open: boolean) => {
+    if (!open && !isDeletingConnection.value) {
+      connectionToDelete.value = null;
+    }
+  },
+});
+const deleteConnectionMessage = computed(() => {
+  const conn = connectionToDelete.value;
+  if (!conn) return '';
+  if (znodeTabsStore.hasDirtyTabsByConnection(conn.uuid)) {
+    return t('connection.confirmDeleteDirty', { name: conn.name || conn.uuid });
+  }
+  return t('connection.confirmDeleteNamed', { name: conn.name || conn.uuid });
+});
+type SshHostKeyPrompt = {
+  host: string;
+  port: number;
+  resolve: (trusted: boolean) => void;
+};
+const sshHostKeyPrompt = ref<SshHostKeyPrompt | null>(null);
+const showSshHostKeyDialog = computed({
+  get: () => Boolean(sshHostKeyPrompt.value),
+  set: (open: boolean) => {
+    if (!open) {
+      resolveSshHostKeyPrompt(false);
+    }
+  },
+});
+const sshHostKeyPromptMessage = computed(() => {
+  const prompt = sshHostKeyPrompt.value;
+  if (!prompt) return '';
+  return t('connection.confirmUnknownSshHostKey', {
+    host: prompt.host,
+    port: prompt.port,
+  });
+});
 
 // Open AppMenus triggers
 const appMenusRef = ref<InstanceType<typeof AppMenus> | null>(null);
@@ -34,7 +76,7 @@ const appMenusRef = ref<InstanceType<typeof AppMenus> | null>(null);
 const disconnect = async (conn: Connection) => {
   if (
     znodeTabsStore.hasDirtyTabsByConnection(conn.uuid)
-    && !window.confirm(t('tabs.confirmDisconnectDirty'))
+    && !(await confirmDialog(t('tabs.confirmDisconnectDirty')))
   ) {
     return;
   }
@@ -42,10 +84,45 @@ const disconnect = async (conn: Connection) => {
   znodeTabsStore.closeTabsByConnection(conn.uuid);
 };
 
+const resolveSshHostKeyPrompt = (trusted: boolean) => {
+  const prompt = sshHostKeyPrompt.value;
+  if (!prompt) return;
+  sshHostKeyPrompt.value = null;
+  prompt.resolve(trusted);
+};
+
+const confirmUnknownSshHostKey = (sshHost?: string, sshPort?: number) => {
+  if (!sshHost) return Promise.resolve(false);
+  const existingPrompt = sshHostKeyPrompt.value;
+  if (existingPrompt) {
+    existingPrompt.resolve(false);
+  }
+  return new Promise<boolean>((resolve) => {
+    sshHostKeyPrompt.value = {
+      host: sshHost,
+      port: sshPort || 22,
+      resolve,
+    };
+  });
+};
+
 const toggleConnection = async (conn: Connection) => {
   try {
     await connectionsStore.toggleConnection(conn);
   } catch (err) {
+    const shouldTrustUnknownHostKey = isSshHostKeyUntrustedError(err)
+      ? await confirmUnknownSshHostKey(conn.ssh_host, conn.ssh_port)
+      : false;
+    if (shouldTrustUnknownHostKey) {
+      try {
+        await connectionsStore.toggleConnection(conn, { trustUnknownSshHostKey: true });
+        return;
+      } catch (retryError) {
+        const retryErrorMsg = getErrorMessage(retryError);
+        showToast.error(`连接失败: ${retryErrorMsg}`);
+        return;
+      }
+    }
     const errorMsg = getErrorMessage(err);
     showToast.error(`连接失败: ${errorMsg}`);
   }
@@ -71,24 +148,32 @@ const openEditDialog = async (conn: Connection, event?: Event) => {
   showConnectionDialog.value = true;
 };
 
-const deleteConnection = async (conn: Connection, event?: Event) => {
+const openDeleteConnectionDialog = (conn: Connection, event?: Event) => {
   if (event) event.stopPropagation();
-  if (!window.confirm(t('connection.confirmDelete'))) return;
-  if (
-    znodeTabsStore.hasDirtyTabsByConnection(conn.uuid)
-    && !window.confirm(t('tabs.confirmDisconnectDirty'))
-  ) {
-    return;
-  }
+  connectionToDelete.value = conn;
+};
 
-  if (connectionsStore.isConnected(conn.uuid)) {
-    await connectionsStore.disconnectConnection(conn);
-  }
-  connectionsStore.forgetConnectionState(conn.uuid);
-  znodeTabsStore.closeTabsByConnection(conn.uuid);
+const deleteConnection = async () => {
+  const conn = connectionToDelete.value;
+  if (!conn) return;
+  isDeletingConnection.value = true;
+  try {
+    if (connectionsStore.isConnected(conn.uuid)) {
+      await connectionsStore.disconnectConnection(conn);
+    }
+    connectionsStore.forgetConnectionState(conn.uuid);
+    znodeTabsStore.closeTabsByConnection(conn.uuid);
   
-  await connectionsStore.removeConnection(conn.uuid);
-  await logsStore.addLog(conn.name || conn.uuid, 'DELETE_CONNECTION', `Deleted connection ${conn.name}`);
+    await connectionsStore.removeConnection(conn.uuid);
+    await logsStore.addLog(conn.name || conn.uuid, 'DELETE_CONNECTION', `Deleted connection ${conn.name}`);
+    connectionToDelete.value = null;
+    showToast.success(t('connection.deleteSuccess'));
+  } catch (error) {
+    const errorMessage = getErrorMessage(error);
+    showToast.error(errorMessage);
+  } finally {
+    isDeletingConnection.value = false;
+  }
 };
 
 const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string }) => {
@@ -117,20 +202,36 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
   const testUuid = `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   connectionDialogTesting.value = true;
   connectionDialogError.value = '';
+  let trustUnknownSshHostKey = false;
   try {
-    await zkApi.connect(
-      testUuid,
-      connData.url,
-      connData.username,
-      connData.password,
-      connData.use_ssh,
-      connData.ssh_host,
-      connData.ssh_port,
-      connData.ssh_username,
-      connData.ssh_auth_method,
-      connData.ssh_password,
-      connData.ssh_key_path,
-    );
+    for (;;) {
+      try {
+        await zkApi.connect(
+          testUuid,
+          connData.url,
+          connData.username,
+          connData.password,
+          connData.use_ssh,
+          connData.ssh_host,
+          connData.ssh_port,
+          connData.ssh_username,
+          connData.ssh_auth_method,
+          connData.ssh_password,
+          connData.ssh_key_path,
+          trustUnknownSshHostKey,
+        );
+        break;
+      } catch (error) {
+        const shouldTrustUnknownHostKey = !trustUnknownSshHostKey && isSshHostKeyUntrustedError(error)
+          ? await confirmUnknownSshHostKey(connData.ssh_host, connData.ssh_port)
+          : false;
+        if (shouldTrustUnknownHostKey) {
+          trustUnknownSshHostKey = true;
+          continue;
+        }
+        throw error;
+      }
+    }
     showToast.success(t('connection.testSuccess'));
   } catch (error) {
     const errorMessage = getErrorMessage(error);
@@ -222,7 +323,7 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
         >
           <!-- Connection Name Header with Context Menu -->
           <ContextMenu>
-            <ContextMenuTrigger>
+            <ContextMenuTrigger as-child>
               <div
                 class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-sidebar-accent transition-colors text-[13px]"
                 @click="toggleConnection(conn)"
@@ -269,17 +370,20 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent>
-              <ContextMenuItem @click="openEditDialog(conn)">
+              <ContextMenuItem @select="openEditDialog(conn, $event)">
                 {{ t('connection.edit') }}
               </ContextMenuItem>
               <ContextMenuItem
                 v-if="isConnected(conn.uuid)"
-                @click="disconnect(conn)"
+                @select="disconnect(conn)"
               >
                 {{ t('connection.disconnect') }}
               </ContextMenuItem>
               <ContextMenuSeparator />
-              <ContextMenuItem @click="deleteConnection(conn)">
+              <ContextMenuItem
+                variant="destructive"
+                @select="openDeleteConnectionDialog(conn, $event)"
+              >
                 {{ t('connection.delete') }}
               </ContextMenuItem>
             </ContextMenuContent>
@@ -315,6 +419,55 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
       ref="appMenusRef"
       class="hidden"
     />
+
+    <Dialog v-model:open="showSshHostKeyDialog">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{{ t('connection.confirmUnknownSshHostKeyTitle') }}</DialogTitle>
+        </DialogHeader>
+        <p class="py-4 text-sm text-muted-foreground">
+          {{ sshHostKeyPromptMessage }}
+        </p>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            @click="resolveSshHostKeyPrompt(false)"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button @click="resolveSshHostKeyPrompt(true)">
+            {{ t('connection.trustSshHost') }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="showDeleteConnectionDialog">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{{ t('connection.confirmDeleteTitle') }}</DialogTitle>
+        </DialogHeader>
+        <p class="py-4 text-sm text-muted-foreground">
+          {{ deleteConnectionMessage }}
+        </p>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            :disabled="isDeletingConnection"
+            @click="showDeleteConnectionDialog = false"
+          >
+            {{ t('connection.cancel') }}
+          </Button>
+          <Button
+            variant="destructive"
+            :disabled="isDeletingConnection"
+            @click="deleteConnection"
+          >
+            {{ t('connection.delete') }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 

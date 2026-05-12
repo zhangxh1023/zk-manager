@@ -32,6 +32,7 @@ pub struct TunnelConfig {
   pub ssh_auth_method: TunnelAuthMethod,
   pub target_host: String,
   pub target_port: u16,
+  pub trust_unknown_host_key: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +46,7 @@ pub enum TunnelAuthMethod {
 struct SshClientHandler {
   host: String,
   port: u16,
+  trust_unknown_host_key: bool,
 }
 
 #[async_trait]
@@ -57,7 +59,13 @@ impl client::Handler for SshClientHandler {
   ) -> Result<bool, Self::Error> {
     match russh::keys::known_hosts::check_known_hosts(&self.host, self.port, server_public_key) {
       Ok(true) => Ok(true),
+      Ok(false) if self.trust_unknown_host_key => {
+        russh::keys::known_hosts::learn_known_hosts(&self.host, self.port, server_public_key)
+          .map_err(russh::Error::from)?;
+        Ok(true)
+      }
       Ok(false) => Err(russh::Error::UnknownKey),
+      Err(russh::keys::Error::KeyChanged { line }) => Err(russh::Error::KeyChanged { line }),
       Err(error) => Err(error.into()),
     }
   }
@@ -73,12 +81,32 @@ fn expand_tilde(path: &str) -> std::path::PathBuf {
   std::path::PathBuf::from(path)
 }
 
+fn ssh_connect_error(host: &str, port: u16, error: russh::Error) -> String {
+  if matches!(error, russh::Error::UnknownKey) {
+    return format!(
+      "SSH host key is not trusted. Add {}:{} to your ~/.ssh/known_hosts file and try again.",
+      host, port
+    );
+  }
+  if matches!(error, russh::Error::KeyChanged { .. }) {
+    return format!(
+      "SSH host key changed for {}:{}. Check your ~/.ssh/known_hosts file before connecting.",
+      host, port
+    );
+  }
+  format!(
+    "Failed to connect to SSH server {}:{}: {}",
+    host, port, error
+  )
+}
+
 /// Create an SSH tunnel (async)
 pub async fn create_tunnel(config: &TunnelConfig) -> Result<SshTunnel, String> {
   println!(
     "Creating SSH tunnel: {}@{}:{}",
     config.ssh_username, config.ssh_host, config.ssh_port
   );
+  println!("ssh_tunnel:connect:start");
 
   // Configure SSH client
   let ssh_config = Arc::new(client::Config::default());
@@ -90,28 +118,13 @@ pub async fn create_tunnel(config: &TunnelConfig) -> Result<SshTunnel, String> {
     SshClientHandler {
       host: config.ssh_host.clone(),
       port: config.ssh_port,
+      trust_unknown_host_key: config.trust_unknown_host_key,
     },
   )
   .await
-  .map_err(|e| {
-    if matches!(e, russh::Error::UnknownKey) {
-      return format!(
-        "SSH host key is not trusted. Add {}:{} to your ~/.ssh/known_hosts file and try again.",
-        config.ssh_host, config.ssh_port
-      );
-    }
-    if matches!(e, russh::Error::KeyChanged { .. }) {
-      return format!(
-        "SSH host key changed for {}:{}. Check your ~/.ssh/known_hosts file before connecting.",
-        config.ssh_host, config.ssh_port
-      );
-    }
-    format!(
-      "Failed to connect to SSH server {}:{}: {}",
-      config.ssh_host, config.ssh_port, e
-    )
-  })?;
+  .map_err(|error| ssh_connect_error(&config.ssh_host, config.ssh_port, error))?;
 
+  println!("ssh_tunnel:authenticate:start");
   // Authenticate
   match &config.ssh_auth_method {
     TunnelAuthMethod::Password { password } => {
@@ -282,6 +295,7 @@ mod tests {
       },
       target_host: "localhost".to_string(),
       target_port: 2181,
+      trust_unknown_host_key: false,
     };
 
     assert_eq!(config.ssh_host, "localhost");
@@ -303,6 +317,7 @@ mod tests {
       },
       target_host: "localhost".to_string(),
       target_port: 2181,
+      trust_unknown_host_key: false,
     };
 
     assert!(matches!(
