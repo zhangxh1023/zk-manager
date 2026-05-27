@@ -14,6 +14,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useLogsStore } from '../../stores/logs';
 import i18n from '../../i18n';
 import { showToast } from '../../utils/toast';
+import { formatDateTime24 } from '../../lib/utils';
 
 const { t } = i18n.global;
 
@@ -67,11 +68,7 @@ const logsStore = useLogsStore();
 const showLogs = ref(false);
 const showClearConfirm = ref(false);
 
-const formatTime = (timestamp: number) => {
-  const d = new Date(timestamp);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-};
+const formatTime = formatDateTime24;
 
 const openLogs = () => {
   showLogs.value = true;

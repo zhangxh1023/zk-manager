@@ -4,7 +4,7 @@ import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { zkApi } from '../../api/zk';
-import { RefreshCw, Eye, EyeOff, Copy, Check } from 'lucide-vue-next';
+import { RefreshCw, Eye, EyeOff, Copy, Check, Clock3, Search } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { listen } from '@tauri-apps/api/event';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -33,6 +33,7 @@ import { showToast } from '../../utils/toast';
 import { getErrorCode, getErrorMessage } from '../../utils/errors';
 import { formatBytes, parseBytes, type SerializationFormat } from '../../utils/serializer';
 import { confirmDialog } from '../../composables/useConfirmDialog';
+import { formatDateTime24 } from '../../lib/utils';
 
 // Viewer components
 import TextViewer from './components/TextViewer.vue';
@@ -78,7 +79,40 @@ const showDeleteDialog = ref(false);
 
 // Watch state
 const isWatching = ref(false);
+const dirtyWatchUpdateNotified = ref(false);
 let unlistenWatch: (() => void) | null = null;
+
+type WatchEventPayload = {
+  connectionUuid: string;
+  path: string;
+  eventType: string;
+  data: number[] | null;
+  stat: object | null;
+  acl: object[] | null;
+};
+
+type WatchTimelineEntryKind = 'initial' | 'changed' | 'deleted';
+
+interface WatchTimelineEntry {
+  id: number;
+  observedAt: number;
+  kind: WatchTimelineEntryKind;
+  eventType: string;
+  path: string;
+  dataLength: number | null;
+  dataPreview: string;
+  dataTruncated: boolean;
+  stat: ZkStat | null;
+  acl: ZkAclEntry[];
+}
+
+const MAX_TIMELINE_ENTRIES = 200;
+const MAX_TIMELINE_DATA_PREVIEW_CHARS = 4000;
+const showTimelineDialog = ref(false);
+const timelineQuery = ref('');
+const watchTimeline = ref<WatchTimelineEntry[]>([]);
+const selectedTimelineId = ref<number | null>(null);
+let timelineSequence = 0;
 
 const FORMAT_OPTIONS: { value: SerializationFormat; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -103,7 +137,7 @@ const syncEditValue = () => {
 
 const formatTimestamp = (value: number) => {
   if (!value) return '-';
-  return new Date(value).toLocaleString();
+  return formatDateTime24(value);
 };
 
 watch(() => props.tab.znodeData, syncEditValue, { immediate: true });
@@ -127,7 +161,11 @@ watch(dataFormat, async (_, oldFormat) => {
 // Track dirtiness
 watch(editValue, (newVal) => {
   if (originalValue.value !== null) {
-    znodeTabsStore.setDirty(props.tab.connectionUuid, props.tab.path, newVal !== originalValue.value);
+    const isDirty = newVal !== originalValue.value;
+    znodeTabsStore.setDirty(props.tab.connectionUuid, props.tab.path, isDirty);
+    if (!isDirty) {
+      dirtyWatchUpdateNotified.value = false;
+    }
   }
 });
 
@@ -159,6 +197,131 @@ const statRows = computed(() => {
     ['dataLength', String(props.tab.stat.dataLength)],
     ['numChildren', String(props.tab.stat.numChildren)],
   ];
+});
+
+const getStatRows = (stat: ZkStat | null) => {
+  if (!stat) return [];
+  return [
+    ['czxid', String(stat.czxid)],
+    ['mzxid', String(stat.mzxid)],
+    ['pzxid', String(stat.pzxid)],
+    ['ctime', formatTimestamp(stat.ctime)],
+    ['mtime', formatTimestamp(stat.mtime)],
+    ['version', String(stat.version)],
+    ['cversion', String(stat.cversion)],
+    ['aversion', String(stat.aversion)],
+    ['ephemeralOwner', String(stat.ephemeralOwner)],
+    ['dataLength', String(stat.dataLength)],
+    ['numChildren', String(stat.numChildren)],
+  ];
+};
+
+const formatTimelineTime = formatDateTime24;
+
+const formatTimelineDataPreview = (data: number[] | null) => {
+  if (data === null) {
+    return {
+      text: t('watchTimeline.noData'),
+      truncated: false,
+    };
+  }
+
+  const result = formatBytes(data, 'text');
+  const text = result.success && result.data !== undefined ? result.data : '';
+  if (text.length > MAX_TIMELINE_DATA_PREVIEW_CHARS) {
+    return {
+      text: text.slice(0, MAX_TIMELINE_DATA_PREVIEW_CHARS),
+      truncated: true,
+    };
+  }
+  return {
+    text,
+    truncated: false,
+  };
+};
+
+const addWatchTimelineEntry = (payload: WatchEventPayload, kind: WatchTimelineEntryKind) => {
+  const stat = payload.stat as ZkStat | null;
+  const acl = (payload.acl ?? []) as ZkAclEntry[];
+  const dataPreview = formatTimelineDataPreview(payload.data);
+  const entry: WatchTimelineEntry = {
+    id: ++timelineSequence,
+    observedAt: Date.now(),
+    kind,
+    eventType: payload.eventType,
+    path: payload.path,
+    dataLength: payload.data?.length ?? stat?.dataLength ?? null,
+    dataPreview: dataPreview.text,
+    dataTruncated: dataPreview.truncated,
+    stat,
+    acl,
+  };
+
+  watchTimeline.value.push(entry);
+  if (watchTimeline.value.length > MAX_TIMELINE_ENTRIES) {
+    watchTimeline.value.splice(0, watchTimeline.value.length - MAX_TIMELINE_ENTRIES);
+  }
+  if (selectedTimelineId.value === null) {
+    selectedTimelineId.value = entry.id;
+  }
+};
+
+const timelineChangeCount = computed(() =>
+  watchTimeline.value.filter(entry => entry.kind !== 'initial').length,
+);
+
+const filteredTimelineEntries = computed(() => {
+  const query = timelineQuery.value.trim().toLowerCase();
+  const entries = [...watchTimeline.value].reverse();
+  if (!query) return entries;
+  return entries.filter(entry => entry.dataPreview.toLowerCase().includes(query));
+});
+
+const selectedTimelineEntry = computed(() => {
+  if (!filteredTimelineEntries.value.length) return null;
+  return filteredTimelineEntries.value.find(entry => entry.id === selectedTimelineId.value)
+    ?? filteredTimelineEntries.value[0];
+});
+
+const selectedTimelineStatRows = computed(() =>
+  getStatRows(selectedTimelineEntry.value?.stat ?? null),
+);
+
+const getTimelineKindLabel = (kind: WatchTimelineEntryKind) =>
+  t(`watchTimeline.kind.${kind}`);
+
+const getTimelineKindClass = (kind: WatchTimelineEntryKind) => {
+  if (kind === 'deleted') {
+    return 'bg-destructive/10 text-destructive border-destructive/20';
+  }
+  if (kind === 'initial') {
+    return 'bg-muted text-muted-foreground border-border';
+  }
+  return 'bg-green-500/10 text-green-600 border-green-500/20 dark:text-green-400';
+};
+
+const openTimelineDialog = () => {
+  showTimelineDialog.value = true;
+  selectedTimelineId.value = filteredTimelineEntries.value[0]?.id ?? null;
+};
+
+const timelineStatusText = computed(() => {
+  if (isWatching.value) {
+    return t('watchTimeline.recording');
+  }
+  if (watchTimeline.value.length) {
+    return t('watchTimeline.paused');
+  }
+  return t('watchTimeline.emptyHint');
+});
+
+const buildCurrentSnapshotPayload = (): WatchEventPayload => ({
+  connectionUuid: props.tab.connectionUuid,
+  path: props.tab.path,
+  eventType: 'InitialSnapshot',
+  data: [...props.tab.znodeData],
+  stat: props.tab.stat ? { ...props.tab.stat } : null,
+  acl: props.tab.acl.map(item => ({ ...item })),
 });
 
 const refresh = async () => {
@@ -289,11 +452,6 @@ const openCreateDialog = () => {
   showCreateDialog.value = true;
 };
 
-// Locate this node in the tree (expand path and scroll to it)
-const locateInTree = async () => {
-  await zkTreeStore.locateNode(props.tab.connectionUuid, props.tab.path);
-};
-
 const writeClipboardText = async (text: string) => {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -336,54 +494,88 @@ const copyPath = async () => {
   }
 };
 
-// Watch toggle
-const toggleWatch = async () => {
-  if (isWatching.value) {
-    try {
-      await zkApi.unwatchNode(props.tab.connectionUuid, props.tab.path);
-    } catch { /* ignore */ }
+const stopWatch = async () => {
+  try {
+    await zkApi.unwatchNode(props.tab.connectionUuid, props.tab.path);
+  } catch { /* ignore */ }
+  isWatching.value = false;
+  znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
+  if (unlistenWatch) {
+    unlistenWatch();
+    unlistenWatch = null;
+  }
+};
+
+const handleWatchEvent = (payload: WatchEventPayload) => {
+  if (payload.connectionUuid !== props.tab.connectionUuid || payload.path !== props.tab.path) {
+    return;
+  }
+
+  if (payload.eventType === 'NodeDeleted') {
+    addWatchTimelineEntry(payload, 'deleted');
     isWatching.value = false;
+    znodeTabsStore.setDeleted(props.tab.connectionUuid, props.tab.path, true);
     znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
+    showToast.error(t('node.deleted'));
     if (unlistenWatch) {
       unlistenWatch();
       unlistenWatch = null;
     }
+    return;
+  }
+
+  if (payload.data !== null && payload.stat !== null) {
+    if (payload.eventType !== 'InitialSnapshot') {
+      addWatchTimelineEntry(payload, 'changed');
+    }
+
+    if (hasUnsavedChanges()) {
+      if (!dirtyWatchUpdateNotified.value) {
+        showToast.info(t('watchTimeline.dirtyUpdateSkipped'));
+        dirtyWatchUpdateNotified.value = true;
+      }
+      return;
+    }
+
+    znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
+      znodeData: payload.data,
+      stat: payload.stat as ZkStat,
+      acl: (payload.acl ?? []) as ZkAclEntry[],
+    });
+  }
+};
+
+const startWatch = async () => {
+  if (unlistenWatch) {
+    unlistenWatch();
+    unlistenWatch = null;
+  }
+
+  unlistenWatch = await listen('zk:node-changed', (event) => {
+    handleWatchEvent(event.payload as WatchEventPayload);
+  });
+
+  try {
+    await zkApi.watchNode(props.tab.connectionUuid, props.tab.path);
+    isWatching.value = true;
+    znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, true);
+    addWatchTimelineEntry(buildCurrentSnapshotPayload(), 'initial');
+  } catch (error) {
+    if (unlistenWatch) {
+      unlistenWatch();
+      unlistenWatch = null;
+    }
+    throw error;
+  }
+};
+
+// Watch toggle
+const toggleWatch = async () => {
+  if (isWatching.value) {
+    await stopWatch();
   } else {
     try {
-      unlistenWatch = await listen('zk:node-changed', (event) => {
-        const payload = event.payload as {
-          connectionUuid: string;
-          path: string;
-          eventType: string;
-          data: number[] | null;
-          stat: object | null;
-          acl: object[] | null;
-        };
-        if (payload.connectionUuid !== props.tab.connectionUuid || payload.path !== props.tab.path) {
-          return;
-        }
-        if (payload.eventType === 'NodeDeleted') {
-          isWatching.value = false;
-          znodeTabsStore.setDeleted(props.tab.connectionUuid, props.tab.path, true);
-          znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
-          showToast.error(t('node.deleted'));
-          if (unlistenWatch) {
-            unlistenWatch();
-            unlistenWatch = null;
-          }
-          return;
-        }
-        if (payload.data !== null && payload.stat !== null) {
-          znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
-            znodeData: payload.data,
-            stat: payload.stat as ZkStat,
-            acl: (payload.acl ?? []) as ZkAclEntry[],
-          });
-        }
-      });
-      await zkApi.watchNode(props.tab.connectionUuid, props.tab.path);
-      isWatching.value = true;
-      znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, true);
+      await startWatch();
     } catch (error) {
       const errorMsg = getErrorMessage(error);
       showToast.error(errorMsg);
@@ -396,39 +588,7 @@ onMounted(async () => {
   // If tab was previously watching, re-establish
   if (props.tab.isWatching) {
     try {
-      unlistenWatch = await listen('zk:node-changed', (event) => {
-        const payload = event.payload as {
-          connectionUuid: string;
-          path: string;
-          eventType: string;
-          data: number[] | null;
-          stat: object | null;
-          acl: object[] | null;
-        };
-        if (payload.connectionUuid !== props.tab.connectionUuid || payload.path !== props.tab.path) {
-          return;
-        }
-        if (payload.eventType === 'NodeDeleted') {
-          isWatching.value = false;
-          znodeTabsStore.setDeleted(props.tab.connectionUuid, props.tab.path, true);
-          znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
-          showToast.error(t('node.deleted'));
-          if (unlistenWatch) {
-            unlistenWatch();
-            unlistenWatch = null;
-          }
-          return;
-        }
-        if (payload.data !== null && payload.stat !== null) {
-          znodeTabsStore.updateTab(props.tab.connectionUuid, props.tab.path, {
-            znodeData: payload.data,
-            stat: payload.stat as ZkStat,
-            acl: (payload.acl ?? []) as ZkAclEntry[],
-          });
-        }
-      });
-      await zkApi.watchNode(props.tab.connectionUuid, props.tab.path);
-      isWatching.value = true;
+      await startWatch();
     } catch {
       znodeTabsStore.setWatching(props.tab.connectionUuid, props.tab.path, false);
     }
@@ -707,49 +867,16 @@ const getNodeName = (path: string) => {
           variant="outline"
           size="sm"
           class="h-7 px-2.5 shadow-sm text-xs border-sidebar-border"
-          @click="locateInTree"
+          @click="openTimelineDialog"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="lucide lucide-locate-fixed size-3 mr-1.5"
-          ><line
-            x1="2"
-            x2="5"
-            y1="12"
-            y2="12"
-          /><line
-            x1="19"
-            x2="22"
-            y1="12"
-            y2="12"
-          /><line
-            x1="12"
-            x2="12"
-            y1="2"
-            y2="5"
-          /><line
-            x1="12"
-            x2="12"
-            y1="19"
-            y2="22"
-          /><circle
-            cx="12"
-            cy="12"
-            r="7"
-          /><circle
-            cx="12"
-            cy="12"
-            r="3"
-          /></svg>
-          {{ t('tabs.locate') }}
+          <Clock3 class="size-3 mr-1.5" />
+          {{ t('watchTimeline.button') }}
+          <span
+            v-if="timelineChangeCount"
+            class="ml-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] leading-none text-primary"
+          >
+            {{ timelineChangeCount }}
+          </span>
         </Button>
         <div class="w-[1px] h-4 bg-sidebar-border mx-1" />
         <Button
@@ -963,6 +1090,162 @@ const getNodeName = (path: string) => {
         </div>
       </TabsContent>
     </Tabs>
+
+    <!-- Watch Timeline Dialog -->
+    <Dialog v-model:open="showTimelineDialog">
+      <DialogContent class="flex h-[70vh] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader class="border-b border-sidebar-border/50 px-4 py-3">
+          <DialogTitle>{{ t('watchTimeline.title') }}</DialogTitle>
+          <p class="text-xs text-muted-foreground">
+            {{ timelineStatusText }}
+          </p>
+        </DialogHeader>
+
+        <div class="flex items-center justify-between gap-3 border-b border-sidebar-border/50 px-4 py-3">
+          <div class="relative min-w-0 flex-1 max-w-sm">
+            <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              v-model="timelineQuery"
+              :placeholder="t('watchTimeline.searchPlaceholder')"
+              class="h-8 pl-8 text-xs"
+            />
+          </div>
+          <span class="shrink-0 text-xs text-muted-foreground">
+            {{ t('watchTimeline.count', { count: watchTimeline.length }) }}
+          </span>
+        </div>
+
+        <div
+          v-if="!watchTimeline.length"
+          class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground"
+        >
+          {{ t('watchTimeline.empty') }}
+        </div>
+        <div
+          v-else-if="!filteredTimelineEntries.length"
+          class="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground"
+        >
+          {{ t('watchTimeline.noMatches') }}
+        </div>
+        <div
+          v-else
+          class="grid flex-1 grid-cols-[240px_minmax(0,1fr)] min-h-0"
+        >
+          <div class="min-h-0 overflow-auto border-r border-sidebar-border/50 bg-sidebar-accent/5">
+            <button
+              v-for="entry in filteredTimelineEntries"
+              :key="entry.id"
+              type="button"
+              class="block w-full border-b border-l-2 border-sidebar-border/40 px-3 py-3 text-left transition-colors"
+              :class="selectedTimelineEntry?.id === entry.id ? 'border-l-primary bg-primary/10' : 'border-l-transparent hover:bg-background/70'"
+              @click="selectedTimelineId = entry.id"
+            >
+              <p class="line-clamp-3 font-mono text-xs leading-5 text-foreground">
+                {{ entry.dataPreview || t('watchTimeline.emptyValue') }}
+              </p>
+              <p class="mt-2 text-[11px] text-muted-foreground">
+                {{ formatTimelineTime(entry.observedAt) }}
+              </p>
+            </button>
+          </div>
+
+          <div
+            v-if="selectedTimelineEntry"
+            class="min-h-0 overflow-auto p-4"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                class="rounded-full border px-2 py-0.5 text-xs font-medium"
+                :class="getTimelineKindClass(selectedTimelineEntry.kind)"
+              >
+                {{ getTimelineKindLabel(selectedTimelineEntry.kind) }}
+              </span>
+              <span class="font-mono text-xs text-muted-foreground">
+                {{ formatTimelineTime(selectedTimelineEntry.observedAt) }}
+              </span>
+              <span class="font-mono text-xs text-muted-foreground">
+                {{ selectedTimelineEntry.eventType }}
+              </span>
+            </div>
+
+            <div class="mt-4 space-y-4">
+              <section>
+                <div class="mb-2 flex items-center justify-between gap-2">
+                  <h3 class="text-xs font-semibold uppercase text-muted-foreground">
+                    {{ t('watchTimeline.data') }}
+                  </h3>
+                  <span class="text-xs text-muted-foreground">
+                    {{ t('watchTimeline.dataLength', { length: selectedTimelineEntry.dataLength ?? '-' }) }}
+                  </span>
+                </div>
+                <pre class="max-h-56 overflow-auto rounded border border-sidebar-border/60 bg-sidebar-accent/10 p-3 text-xs whitespace-pre-wrap break-words">{{ selectedTimelineEntry.dataPreview }}</pre>
+                <p
+                  v-if="selectedTimelineEntry.dataTruncated"
+                  class="mt-1 text-xs text-muted-foreground"
+                >
+                  {{ t('watchTimeline.truncated') }}
+                </p>
+              </section>
+
+              <section>
+                <h3 class="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                  {{ t('watchTimeline.acl') }}
+                </h3>
+                <div
+                  v-if="selectedTimelineEntry.acl.length"
+                  class="space-y-2"
+                >
+                  <div
+                    v-for="(acl, index) in selectedTimelineEntry.acl"
+                    :key="`${acl.scheme}-${acl.id}-${index}`"
+                    class="rounded border border-sidebar-border/60 px-3 py-2 text-xs"
+                  >
+                    <div><span class="font-medium">{{ t('acl.scheme') }}:</span> {{ acl.scheme }}</div>
+                    <div><span class="font-medium">{{ t('acl.id') }}:</span> {{ acl.id }}</div>
+                    <div><span class="font-medium">{{ t('acl.permission') }}:</span> {{ acl.permission }}</div>
+                  </div>
+                </div>
+                <p
+                  v-else
+                  class="text-xs text-muted-foreground"
+                >
+                  {{ t('watchTimeline.noAcl') }}
+                </p>
+              </section>
+
+              <section>
+                <h3 class="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                  {{ t('watchTimeline.meta') }}
+                </h3>
+                <div
+                  v-if="selectedTimelineStatRows.length"
+                  class="grid grid-cols-2 gap-2"
+                >
+                  <div
+                    v-for="[label, value] in selectedTimelineStatRows"
+                    :key="label"
+                    class="rounded border border-sidebar-border/60 px-3 py-2 text-xs"
+                  >
+                    <div class="font-medium text-muted-foreground">
+                      {{ t(`meta.${label}`) || label }}
+                    </div>
+                    <div class="mt-1 break-all font-mono">
+                      {{ value }}
+                    </div>
+                  </div>
+                </div>
+                <p
+                  v-else
+                  class="text-xs text-muted-foreground"
+                >
+                  {{ t('watchTimeline.noMeta') }}
+                </p>
+              </section>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
 
     <!-- Create Child Dialog -->
     <Dialog v-model:open="showCreateDialog">

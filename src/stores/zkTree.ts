@@ -98,11 +98,6 @@ export const useZkTreeStore = defineStore('zkTree', () => {
     return loadingStates.value[key] || false;
   };
 
-  // Locate: navigate to the given path (show its children in the list)
-  const locateNode = async (connectionUuid: string, path: string) => {
-    await navigateTo(connectionUuid, path);
-  };
-
   // Go to node: navigate to an arbitrary path
   const goToNode = async (connectionUuid: string, path: string) => {
     await navigateTo(connectionUuid, path);
@@ -151,7 +146,6 @@ export const useZkTreeStore = defineStore('zkTree', () => {
     fetchChildren,
     getChildren,
     isLoading,
-    locateNode,
     goToNode,
     refreshCurrentPath,
     onNodeDeleted,

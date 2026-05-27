@@ -46,6 +46,7 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 
 #### Others
 - [x] Node data monitoring (Watcher)
+- [x] Node watch timeline (temporarily records node changes while watching)
 
 ### Incomplete
 
@@ -63,7 +64,6 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 - [ ] Batch ACL modification
 
 #### Others
-- [ ] Node historical version viewing
 - [ ] Keyboard shortcuts
 - [ ] Import/export connection configurations
 

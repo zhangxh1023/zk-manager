@@ -754,13 +754,14 @@ async fn watch_node(
     .await
     .map_err(|e| zk_error(e, "Failed to read ACL"))?;
 
-  // Emit initial data
+  // Emit initial data for clients that want to refresh their current view.
+  // The frontend records its own timeline snapshot when watch starts.
   let _ = app.emit(
     "zk:node-changed",
     WatchEvent {
       connection_uuid: connection_uuid.clone(),
       path: path.clone(),
-      event_type: "NodeDataChanged".to_string(),
+      event_type: "InitialSnapshot".to_string(),
       data: Some(data),
       stat: Some(stat.into()),
       acl: Some(acl.into_iter().map(|a| a.into()).collect()),
