@@ -61,6 +61,9 @@ export default {
     saveSuccess: '保存成功',
     refreshBeforeSave: '节点状态已缺失，请刷新后再保存',
     deleted: '节点已被删除',
+    copyPath: '复制路径',
+    pathCopied: '路径已复制',
+    copyPathFailed: '复制路径失败',
   },
   tabs: {
     data: '数据',

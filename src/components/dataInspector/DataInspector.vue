@@ -4,7 +4,7 @@ import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { zkApi } from '../../api/zk';
-import { RefreshCw, Eye, EyeOff } from 'lucide-vue-next';
+import { RefreshCw, Eye, EyeOff, Copy, Check } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { listen } from '@tauri-apps/api/event';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -58,6 +58,8 @@ const editValue = ref('');
 const isSubmitting = ref(false);
 const errorMessage = ref('');
 const originalValue = ref<string | null>(null);
+const copiedPath = ref(false);
+let copiedPathResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Create child dialog
 const showCreateDialog = ref(false);
@@ -292,6 +294,48 @@ const locateInTree = async () => {
   await zkTreeStore.locateNode(props.tab.connectionUuid, props.tab.path);
 };
 
+const writeClipboardText = async (text: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('Copy command failed');
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
+};
+
+const copyPath = async () => {
+  try {
+    await writeClipboardText(props.tab.path);
+    copiedPath.value = true;
+    showToast.success(t('node.pathCopied'));
+
+    if (copiedPathResetTimer) {
+      clearTimeout(copiedPathResetTimer);
+    }
+    copiedPathResetTimer = setTimeout(() => {
+      copiedPath.value = false;
+      copiedPathResetTimer = null;
+    }, 1500);
+  } catch {
+    showToast.error(t('node.copyPathFailed'));
+  }
+};
+
 // Watch toggle
 const toggleWatch = async () => {
   if (isWatching.value) {
@@ -393,6 +437,10 @@ onMounted(async () => {
 
 // Cleanup on unmount
 onUnmounted(() => {
+  if (copiedPathResetTimer) {
+    clearTimeout(copiedPathResetTimer);
+    copiedPathResetTimer = null;
+  }
   if (unlistenWatch) {
     unlistenWatch();
     unlistenWatch = null;
@@ -603,10 +651,28 @@ const getNodeName = (path: string) => {
           <span class="text-xs font-medium text-muted-foreground px-1.5 py-0.5 rounded-md bg-sidebar-accent border border-sidebar-border/50">Node</span>
         </h2>
         <div
-          class="text-xs text-muted-foreground font-mono truncate flex items-center gap-1.5 opacity-80"
-          title="Full Path"
+          class="text-xs text-muted-foreground font-mono leading-5 opacity-80 min-w-0 max-w-full"
+          :title="tab.path"
         >
-          <span class="text-primary/70 select-none font-bold">PATH</span> {{ tab.path }}
+          <span class="text-primary/70 select-none font-bold leading-5 align-middle">PATH</span>
+          <span class="break-all whitespace-normal leading-5 align-middle ml-1">{{ tab.path }}</span>
+          <Button
+            :aria-label="t('node.copyPath')"
+            :title="t('node.copyPath')"
+            variant="ghost"
+            size="icon"
+            class="inline-flex align-middle ml-1 h-5 w-5 text-muted-foreground hover:text-foreground"
+            @click="copyPath"
+          >
+            <Check
+              v-if="copiedPath"
+              class="size-3.5 text-green-500"
+            />
+            <Copy
+              v-else
+              class="size-3.5"
+            />
+          </Button>
         </div>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">

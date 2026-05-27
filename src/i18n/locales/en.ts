@@ -61,6 +61,9 @@ export default {
     saveSuccess: 'Saved successfully',
     refreshBeforeSave: 'Node state is missing. Refresh before saving.',
     deleted: 'Node has been deleted',
+    copyPath: 'Copy path',
+    pathCopied: 'Path copied',
+    copyPathFailed: 'Failed to copy path',
   },
   tabs: {
     data: 'Data',
