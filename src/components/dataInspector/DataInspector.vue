@@ -108,6 +108,7 @@ interface WatchTimelineEntry {
 
 const MAX_TIMELINE_ENTRIES = 200;
 const MAX_TIMELINE_DATA_PREVIEW_CHARS = 4000;
+const MAX_TIMELINE_LIST_PREVIEW_CHARS = 90;
 const showTimelineDialog = ref(false);
 const timelineQuery = ref('');
 const watchTimeline = ref<WatchTimelineEntry[]>([]);
@@ -286,6 +287,18 @@ const selectedTimelineEntry = computed(() => {
 const selectedTimelineStatRows = computed(() =>
   getStatRows(selectedTimelineEntry.value?.stat ?? null),
 );
+
+const getTimelineListPreview = (entry: WatchTimelineEntry) => {
+  const fallbackText = entry.dataPreview || t('watchTimeline.emptyValue');
+  const singleLineText = fallbackText.replace(/\s+/g, ' ').trim() || fallbackText;
+  const shouldEllipsize = entry.dataTruncated || singleLineText.length > MAX_TIMELINE_LIST_PREVIEW_CHARS;
+
+  if (!shouldEllipsize) {
+    return singleLineText;
+  }
+
+  return `${singleLineText.slice(0, MAX_TIMELINE_LIST_PREVIEW_CHARS).trimEnd()}...`;
+};
 
 const getTimelineKindLabel = (kind: WatchTimelineEntryKind) =>
   t(`watchTimeline.kind.${kind}`);
@@ -1140,8 +1153,11 @@ const getNodeName = (path: string) => {
               :class="selectedTimelineEntry?.id === entry.id ? 'border-l-primary bg-primary/10' : 'border-l-transparent hover:bg-background/70'"
               @click="selectedTimelineId = entry.id"
             >
-              <p class="line-clamp-3 font-mono text-xs leading-5 text-foreground">
-                {{ entry.dataPreview || t('watchTimeline.emptyValue') }}
+              <p
+                class="line-clamp-3 break-all font-mono text-xs leading-5 text-foreground"
+                :title="entry.dataPreview || t('watchTimeline.emptyValue')"
+              >
+                {{ getTimelineListPreview(entry) }}
               </p>
               <p class="mt-2 text-[11px] text-muted-foreground">
                 {{ formatTimelineTime(entry.observedAt) }}
