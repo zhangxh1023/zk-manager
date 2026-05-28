@@ -1,4 +1,4 @@
-use crate::{AppError, AppResult};
+use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};

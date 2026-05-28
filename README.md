@@ -77,8 +77,13 @@ zk-manager/
 │   │   ├── appMenus/           # Top menu bar
 │   │   ├── blocks/             # Layout blocks
 │   │   ├── dataInspector/      # Data inspector
+│   │   │   ├── components/     # Data inspector view components
+│   │   │   ├── composables/    # Data inspector business logic
+│   │   │   ├── types.ts        # Data inspector local types
+│   │   │   └── utils.ts        # Data inspector pure utilities
 │   │   ├── zkTree/            # ZooKeeper tree navigation
 │   │   └── ui/                 # Base UI components
+│   ├── composables/             # Shared frontend composables
 │   ├── stores/                  # Pinia state management
 │   ├── types/                   # TypeScript type definitions
 │   ├── utils/                   # Utility functions
@@ -86,7 +91,14 @@ zk-manager/
 │   └── i18n/                    # Internationalization config
 ├── src-tauri/                   # Tauri/Rust backend source
 │   └── src/
-│       ├── lib.rs               # Main library and Tauri commands
+│       ├── commands/            # Grouped Tauri commands
+│       │   ├── connection.rs    # ZooKeeper connection and secrets commands
+│       │   ├── node.rs          # Node data, ACL, create/delete commands
+│       │   └── watch.rs         # Node watch commands
+│       ├── lib.rs               # Tauri startup, plugins, and command registry
+│       ├── error.rs             # App error type and error mapping
+│       ├── models.rs            # Backend request/response and ZooKeeper types
+│       ├── state.rs             # ZooKeeper client, tunnel, and watcher state
 │       ├── database.rs          # SQLite persistence
 │       ├── secrets.rs           # System keychain integration
 │       ├── ssh_tunnel.rs        # SSH tunnel implementation

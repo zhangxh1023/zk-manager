@@ -77,8 +77,13 @@ zk-manager/
 │   │   ├── appMenus/           # 顶部菜单栏
 │   │   ├── blocks/             # 布局区块
 │   │   ├── dataInspector/      # 数据查看器
+│   │   │   ├── components/     # 数据查看器展示组件
+│   │   │   ├── composables/    # 数据查看器业务逻辑
+│   │   │   ├── types.ts        # 数据查看器局部类型
+│   │   │   └── utils.ts        # 数据查看器纯工具函数
 │   │   ├── zkTree/            # ZooKeeper 树导航
 │   │   └── ui/                 # UI 基础组件
+│   ├── composables/             # 前端共享组合式函数
 │   ├── stores/                  # Pinia 状态管理
 │   ├── types/                   # TypeScript 类型定义
 │   ├── utils/                   # 工具函数
@@ -86,7 +91,14 @@ zk-manager/
 │   └── i18n/                    # 国际化配置
 ├── src-tauri/                   # Tauri/Rust 后端源码
 │   └── src/
-│       ├── lib.rs               # 主库文件和 Tauri 命令
+│       ├── commands/            # Tauri 命令分组
+│       │   ├── connection.rs    # ZooKeeper 连接和密钥命令
+│       │   ├── node.rs          # 节点数据、ACL、创建删除命令
+│       │   └── watch.rs         # 节点 Watch 命令
+│       ├── lib.rs               # Tauri 启动、插件注册和命令注册
+│       ├── error.rs             # 应用错误类型和错误转换
+│       ├── models.rs            # 后端请求/响应和 ZooKeeper 类型
+│       ├── state.rs             # ZooKeeper 客户端、隧道和 Watcher 状态
 │       ├── database.rs          # SQLite 持久化
 │       ├── secrets.rs           # 系统钥匙串集成
 │       ├── ssh_tunnel.rs        # SSH 隧道实现
