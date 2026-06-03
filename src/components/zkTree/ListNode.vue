@@ -24,8 +24,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { showToast } from '../../utils/toast';
-import { getErrorCode, getErrorMessage } from '../../utils/errors';
+import { getErrorMessage } from '../../utils/errors';
 import { confirmDialog } from '../../composables/useConfirmDialog';
+import { useZnodeDelete } from '../../composables/useZnodeDelete';
 
 const { t } = i18n.global;
 
@@ -37,6 +38,7 @@ const props = defineProps<{
 const zkTreeStore = useZkTreeStore();
 const znodeTabsStore = useZnodeTabsStore();
 const logsStore = useLogsStore();
+const { deleteNode, deleteNodeRecursive } = useZnodeDelete();
 
 // Create dialog state
 const showCreateDialog = ref(false);
@@ -150,53 +152,27 @@ const openDeleteDialog = () => {
 const confirmDelete = async () => {
   isDeleting.value = true;
   try {
-    await zkApi.deleteNode(props.connectionUuid, props.node.path);
-    await logsStore.addLog(props.connectionUuid, 'DELETE', `Deleted node ${props.node.path}`);
-    znodeTabsStore.delTab(props.connectionUuid, props.node.path);
-    await zkTreeStore.onNodeDeleted(props.connectionUuid, props.node.path);
-    showDeleteDialog.value = false;
-    showToast.success(t('node.deleteSuccess'));
-  } catch (err: unknown) {
-    const shouldDeleteRecursive = getErrorCode(err) === 'NOT_EMPTY'
-      && await confirmDialog({
-        message: t('node.confirmRecursiveDelete', { path: props.node.path }),
-        variant: 'destructive',
-        confirmText: t('node.delete'),
-      });
-    if (shouldDeleteRecursive) {
-      if (
-        znodeTabsStore.hasDirtyTabsByPathPrefix(props.connectionUuid, props.node.path)
-        && !(await confirmDialog({
-          message: t('tabs.confirmRecursiveDeleteDirty'),
-          variant: 'destructive',
-          confirmText: t('node.delete'),
-        }))
-      ) {
-        return;
-      }
-      try {
-        await zkApi.deleteNodeRecursive(props.connectionUuid, props.node.path);
-        await logsStore.addLog(props.connectionUuid, 'DELETE', `Recursively deleted node ${props.node.path}`);
-        znodeTabsStore.closeTabsByPathPrefix(props.connectionUuid, props.node.path);
-        await zkTreeStore.onNodeDeleted(props.connectionUuid, props.node.path);
-        showDeleteDialog.value = false;
-        showToast.success(t('node.deleteSuccess'));
-        return;
-      } catch (recursiveError) {
-        const recursiveErrorMsg = getErrorMessage(recursiveError);
-        await logsStore.addLog(
-          props.connectionUuid,
-          'DELETE',
-          `Failed to recursively delete node ${props.node.path}: ${recursiveErrorMsg}`,
-          false,
-        );
-        showToast.error(recursiveErrorMsg);
-        return;
-      }
+    const deleted = await deleteNode({
+      connectionUuid: props.connectionUuid,
+      path: props.node.path,
+      logConnectionName: props.connectionUuid,
+    });
+    if (deleted) {
+      showDeleteDialog.value = false;
     }
-    const errorMsg = getErrorMessage(err);
-    await logsStore.addLog(props.connectionUuid, 'DELETE', `Failed to delete node ${props.node.path}: ${errorMsg}`, false);
-    showToast.error(errorMsg);
+  } finally {
+    isDeleting.value = false;
+  }
+};
+
+const confirmRecursiveDelete = async () => {
+  isDeleting.value = true;
+  try {
+    await deleteNodeRecursive({
+      connectionUuid: props.connectionUuid,
+      path: props.node.path,
+      logConnectionName: props.connectionUuid,
+    });
   } finally {
     isDeleting.value = false;
   }
@@ -230,6 +206,12 @@ const confirmDelete = async () => {
           @select="openDeleteDialog"
         >
           {{ t('node.delete') }}
+        </ContextMenuItem>
+        <ContextMenuItem
+          variant="destructive"
+          @select="confirmRecursiveDelete"
+        >
+          {{ t('node.deleteRecursive') }}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

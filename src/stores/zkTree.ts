@@ -23,6 +23,11 @@ export const useZkTreeStore = defineStore('zkTree', () => {
 
   const cacheKey = (connectionUuid: string, path: string) => `${connectionUuid}:${path}`;
 
+  const parentPathOf = (path: string) => path.substring(0, path.lastIndexOf('/')) || '/';
+
+  const pathIsInSubtree = (candidatePath: string, subtreePath: string) =>
+    candidatePath === subtreePath || candidatePath.startsWith(subtreePath === '/' ? '/' : `${subtreePath}/`);
+
   // Get current path for a connection
   const getCurrentPath = (connectionUuid: string): string => {
     return currentPaths.value[connectionUuid] || '/';
@@ -111,10 +116,36 @@ export const useZkTreeStore = defineStore('zkTree', () => {
 
   // After delete: invalidate parent cache and refresh if needed
   const onNodeDeleted = async (connectionUuid: string, path: string) => {
-    const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
-    const key = cacheKey(connectionUuid, parentPath);
-    delete childrenCache.value[key];
-    if (getCurrentPath(connectionUuid) === parentPath) {
+    const parentPath = parentPathOf(path);
+    delete childrenCache.value[cacheKey(connectionUuid, parentPath)];
+    delete childrenCache.value[cacheKey(connectionUuid, path)];
+
+    const currentPath = getCurrentPath(connectionUuid);
+    if (currentPath === path) {
+      currentPaths.value[connectionUuid] = parentPath;
+      await fetchChildren(connectionUuid, parentPath, true);
+    } else if (currentPath === parentPath) {
+      await fetchChildren(connectionUuid, parentPath, true);
+    }
+  };
+
+  // After recursive delete: clear affected subtree cache and leave deleted paths
+  const onNodeDeletedRecursive = async (connectionUuid: string, path: string) => {
+    const parentPath = parentPathOf(path);
+    const prefix = `${connectionUuid}:`;
+    Object.keys(childrenCache.value).forEach(key => {
+      if (!key.startsWith(prefix)) return;
+      const cachedPath = key.slice(prefix.length);
+      if (cachedPath === parentPath || pathIsInSubtree(cachedPath, path)) {
+        delete childrenCache.value[key];
+      }
+    });
+
+    const currentPath = getCurrentPath(connectionUuid);
+    if (pathIsInSubtree(currentPath, path)) {
+      currentPaths.value[connectionUuid] = parentPath;
+      await fetchChildren(connectionUuid, parentPath, true);
+    } else if (currentPath === parentPath) {
       await fetchChildren(connectionUuid, parentPath, true);
     }
   };
@@ -149,6 +180,7 @@ export const useZkTreeStore = defineStore('zkTree', () => {
     goToNode,
     refreshCurrentPath,
     onNodeDeleted,
+    onNodeDeletedRecursive,
     onNodeCreated,
     clearConnection,
   };

@@ -35,7 +35,7 @@ const {
   isDirty,
   isSubmitting,
   save,
-} = useDataEditor(tabRef, showDeleteDialog);
+} = useDataEditor(tabRef);
 
 const {
   copiedPath,
@@ -47,6 +47,7 @@ const {
   openCreateDialog,
   refresh,
   removeNode,
+  removeNodeRecursive,
   showCreateDialog,
 } = useNodeActions(
   tabRef,
@@ -123,6 +124,7 @@ watch(isDirty, (dirty) => {
       @import-node-data="importNodeData"
       @open-create="openCreateDialog"
       @open-delete="showDeleteDialog = true"
+      @open-recursive-delete="removeNodeRecursive"
       @open-timeline="openTimelineDialog"
       @refresh="refresh"
       @toggle-watch="toggleWatch"

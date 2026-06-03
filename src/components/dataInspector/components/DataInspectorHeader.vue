@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Clock3, Copy, Download, Eye, EyeOff, Plus, RefreshCw, Trash2, Upload } from 'lucide-vue-next';
+import { Check, Clock3, Copy, Download, Eye, EyeOff, FolderX, Plus, RefreshCw, Trash2, Upload } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { Button } from '../../ui/button';
 import type { ZnodeTab } from '../../../stores/znodeTabs';
@@ -19,6 +19,7 @@ const emit = defineEmits<{
   (e: 'import-node-data'): void;
   (e: 'open-create'): void;
   (e: 'open-delete'): void;
+  (e: 'open-recursive-delete'): void;
   (e: 'open-timeline'): void;
   (e: 'refresh'): void;
   (e: 'toggle-watch'): void;
@@ -137,13 +138,25 @@ const { t } = useI18n();
       </Button>
       <Button
         :aria-label="t('node.delete')"
+        :title="t('node.delete')"
         variant="ghost"
         size="icon"
-        :disabled="isSubmitting || tab.isDeleted"
+        :disabled="isSubmitting || tab.isDeleted || tab.path === '/'"
         class="h-7 w-7 text-muted-foreground hover:text-destructive"
         @click="emit('open-delete')"
       >
         <Trash2 class="size-4" />
+      </Button>
+      <Button
+        :aria-label="t('node.deleteRecursive')"
+        :title="t('node.deleteRecursive')"
+        variant="ghost"
+        size="icon"
+        :disabled="isSubmitting || tab.isDeleted || tab.path === '/'"
+        class="h-7 w-7 text-muted-foreground hover:text-destructive"
+        @click="emit('open-recursive-delete')"
+      >
+        <FolderX class="size-4" />
       </Button>
     </div>
   </div>

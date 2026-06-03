@@ -3,21 +3,16 @@ import { useI18n } from 'vue-i18n';
 import { zkApi } from '../../../api/zk';
 import { confirmDialog } from '../../../composables/useConfirmDialog';
 import { useLogsStore } from '../../../stores/logs';
-import { useZkTreeStore } from '../../../stores/zkTree';
 import { useZnodeTabsStore, type ZnodeTab } from '../../../stores/znodeTabs';
-import { getErrorCode, getErrorMessage } from '../../../utils/errors';
+import { getErrorMessage } from '../../../utils/errors';
 import { formatBytes, parseBytes, type SerializationFormat } from '../../../utils/serializer';
 import { showToast } from '../../../utils/toast';
 import { FORMAT_OPTIONS } from '../utils';
 
-export const useDataEditor = (
-  tab: Ref<ZnodeTab>,
-  showDeleteDialog?: Ref<boolean>,
-) => {
+export const useDataEditor = (tab: Ref<ZnodeTab>) => {
   const { t } = useI18n();
   const znodeTabsStore = useZnodeTabsStore();
   const logsStore = useLogsStore();
-  const zkTreeStore = useZkTreeStore();
 
   const dataFormat = ref<SerializationFormat>('text');
   const editValue = ref('');
@@ -101,45 +96,6 @@ export const useDataEditor = (
       await logsStore.addLog('current', 'SET_DATA', `Updated data of ${tab.value.path}`);
       showToast.success(t('node.saveSuccess'));
     } catch (error: unknown) {
-      const shouldDeleteRecursive = getErrorCode(error) === 'NOT_EMPTY'
-        && await confirmDialog({
-          message: t('node.confirmRecursiveDelete', { path: tab.value.path }),
-          variant: 'destructive',
-          confirmText: t('node.delete'),
-        });
-      if (shouldDeleteRecursive) {
-        if (
-          znodeTabsStore.hasDirtyTabsByPathPrefix(tab.value.connectionUuid, tab.value.path)
-          && !(await confirmDialog({
-            message: t('tabs.confirmRecursiveDeleteDirty'),
-            variant: 'destructive',
-            confirmText: t('node.delete'),
-          }))
-        ) {
-          return;
-        }
-        try {
-          await zkApi.deleteNodeRecursive(tab.value.connectionUuid, tab.value.path);
-          await logsStore.addLog('current', 'DELETE', `Recursively deleted node ${tab.value.path}`);
-          await zkTreeStore.onNodeDeleted(tab.value.connectionUuid, tab.value.path);
-          znodeTabsStore.closeTabsByPathPrefix(tab.value.connectionUuid, tab.value.path);
-          if (showDeleteDialog) {
-            showDeleteDialog.value = false;
-          }
-          showToast.success(t('node.deleteSuccess'));
-          return;
-        } catch (recursiveError) {
-          const recursiveErrorMsg = getErrorMessage(recursiveError);
-          await logsStore.addLog(
-            'current',
-            'DELETE',
-            `Failed to recursively delete node ${tab.value.path}: ${recursiveErrorMsg}`,
-            false,
-          );
-          showToast.error(recursiveErrorMsg);
-          return;
-        }
-      }
       const errorMsg = getErrorMessage(error);
       showToast.error(errorMsg);
     } finally {

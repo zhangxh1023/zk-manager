@@ -7,6 +7,7 @@ import { useZkTreeStore } from '../../../stores/zkTree';
 import { useZnodeTabsStore, type ZnodeTab } from '../../../stores/znodeTabs';
 import { getErrorMessage } from '../../../utils/errors';
 import { showToast } from '../../../utils/toast';
+import { useZnodeDelete } from '../../../composables/useZnodeDelete';
 import { buildChildPath } from '../utils';
 
 export const useNodeActions = (
@@ -20,6 +21,7 @@ export const useNodeActions = (
   const znodeTabsStore = useZnodeTabsStore();
   const logsStore = useLogsStore();
   const zkTreeStore = useZkTreeStore();
+  const { deleteNode, deleteNodeRecursive } = useZnodeDelete();
 
   const copiedPath = ref(false);
   const showCreateDialog = ref(false);
@@ -140,15 +142,28 @@ export const useNodeActions = (
     isSubmitting.value = true;
     errorMessage.value = '';
     try {
-      await zkApi.deleteNode(tab.value.connectionUuid, tab.value.path);
-      await logsStore.addLog('current', 'DELETE', `Deleted node ${tab.value.path}`);
-      await zkTreeStore.onNodeDeleted(tab.value.connectionUuid, tab.value.path);
-      znodeTabsStore.delTab(tab.value.connectionUuid, tab.value.path);
-      showDeleteDialog.value = false;
-      showToast.success(t('node.deleteSuccess'));
-    } catch (error: unknown) {
-      const errorMsg = getErrorMessage(error);
-      showToast.error(errorMsg);
+      const deleted = await deleteNode({
+        connectionUuid: tab.value.connectionUuid,
+        path: tab.value.path,
+        logConnectionName: 'current',
+      });
+      if (deleted) {
+        showDeleteDialog.value = false;
+      }
+    } finally {
+      isSubmitting.value = false;
+    }
+  };
+
+  const removeNodeRecursive = async () => {
+    isSubmitting.value = true;
+    errorMessage.value = '';
+    try {
+      await deleteNodeRecursive({
+        connectionUuid: tab.value.connectionUuid,
+        path: tab.value.path,
+        logConnectionName: 'current',
+      });
     } finally {
       isSubmitting.value = false;
     }
@@ -171,6 +186,7 @@ export const useNodeActions = (
     openCreateDialog,
     refresh,
     removeNode,
+    removeNodeRecursive,
     showCreateDialog,
   };
 };
