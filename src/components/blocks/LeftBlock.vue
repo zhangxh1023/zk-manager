@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { ChevronRight, ChevronDown, Settings, ClipboardClock, Database } from 'lucide-vue-next';
+import { ChevronRight, ChevronDown, Settings, ClipboardClock, Database, Download, Upload } from 'lucide-vue-next';
 import ZkList from '../zkTree/ZkList.vue';
 import { useConnectionsStore, type Connection } from '../../stores/connections';
 import { useZnodeTabsStore } from '../../stores/znodeTabs';
@@ -16,6 +16,8 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, C
 import ConnectionDialog from './ConnectionDialog.vue';
 import AppMenus from '../appMenus/AppMenus.vue';
 import { confirmDialog } from '../../composables/useConfirmDialog';
+import { createConnectionExportPayload, parseConnectionExportPayload } from '../../utils/connectionTransfer';
+import { pickFile, saveJsonFile, timestampFilePart } from '../../utils/fileTransfer';
 
 const { t } = useI18n();
 const connectionsStore = useConnectionsStore();
@@ -151,6 +153,67 @@ const openEditDialog = async (conn: Connection, event?: Event) => {
 const openDeleteConnectionDialog = (conn: Connection, event?: Event) => {
   if (event) event.stopPropagation();
   connectionToDelete.value = conn;
+};
+
+const exportConnectionConfigs = async () => {
+  if (connectionsStore.connections.length === 0) {
+    showToast.error(t('connection.exportEmpty'));
+    return;
+  }
+
+  const payload = createConnectionExportPayload(connectionsStore.connections);
+  const path = await saveJsonFile(payload, {
+    defaultPath: `zk-manager-connections-${timestampFilePart()}.json`,
+    title: t('connection.exportConfigs'),
+  });
+  if (!path) return;
+
+  await logsStore.addLog(
+    'app',
+    'EXPORT_CONNECTIONS',
+    `Exported ${payload.connections.length} connection configurations without passwords to ${path}`,
+  );
+  showToast.success(t('connection.exportSuccess', { count: payload.connections.length }));
+};
+
+const importConnectionConfigs = async () => {
+  const file = await pickFile([{
+    name: 'JSON',
+    extensions: ['json'],
+  }]);
+  if (!file) return;
+
+  try {
+    const payload = JSON.parse(file.text);
+    const importedConnections = parseConnectionExportPayload(payload);
+    if (importedConnections.length === 0) {
+      showToast.error(t('connection.importEmpty'));
+      return;
+    }
+    if (!(await confirmDialog(t('connection.confirmImportConfigs', { count: importedConnections.length })))) {
+      return;
+    }
+
+    const summary = await connectionsStore.importConnections(importedConnections);
+    await logsStore.addLog(
+      'app',
+      'IMPORT_CONNECTIONS',
+      `Imported connection configurations from ${file.name}, added: ${summary.added}, updated: ${summary.updated}`,
+    );
+    showToast.success(t('connection.importSuccess', {
+      added: summary.added,
+      updated: summary.updated,
+    }));
+  } catch (error) {
+    const errorMessage = getErrorMessage(error);
+    await logsStore.addLog(
+      'app',
+      'IMPORT_CONNECTIONS',
+      `Failed to import connection configurations from ${file.name}: ${errorMessage}`,
+      false,
+    );
+    showToast.error(t('connection.importFailed', { message: errorMessage }));
+  }
 };
 
 const deleteConnection = async () => {
@@ -313,6 +376,46 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
     <div class="flex-1 flex flex-col min-w-0 mac-sidebar">
       <div class="h-12 border-b border-sidebar-border flex items-center px-4 justify-between shrink-0">
         <span class="text-xs font-semibold tracking-wider text-muted-foreground">CONNECTIONS</span>
+        <div class="flex items-center gap-1">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button
+                  :aria-label="t('connection.importConfigs')"
+                  variant="ghost"
+                  size="icon-sm"
+                  class="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  @click="importConnectionConfigs"
+                >
+                  <Upload class="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{{ t('connection.importConfigs') }}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button
+                  :aria-label="t('connection.exportConfigs')"
+                  variant="ghost"
+                  size="icon-sm"
+                  :disabled="connectionsStore.connections.length === 0"
+                  class="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  @click="exportConnectionConfigs"
+                >
+                  <Download class="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{{ t('connection.exportConfigs') }}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
       
       <div class="flex-1 overflow-y-auto px-2 py-3 space-y-1">
