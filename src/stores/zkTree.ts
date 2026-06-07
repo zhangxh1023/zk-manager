@@ -11,6 +11,11 @@ export interface ZkListNode {
   hasChildren: boolean;
 }
 
+interface NodeCreatedAtPathOptions {
+  invalidateAncestors?: boolean;
+  refreshCurrentPath?: boolean;
+}
+
 export const useZkTreeStore = defineStore('zkTree', () => {
   // Per connection: current path being viewed
   const currentPaths = ref<Record<string, string>>({});
@@ -27,6 +32,23 @@ export const useZkTreeStore = defineStore('zkTree', () => {
 
   const pathIsInSubtree = (candidatePath: string, subtreePath: string) =>
     candidatePath === subtreePath || candidatePath.startsWith(subtreePath === '/' ? '/' : `${subtreePath}/`);
+
+  const ancestorPathsOf = (path: string) => {
+    const ancestors: string[] = [];
+    let current = parentPathOf(path);
+
+    while (true) {
+      ancestors.push(current);
+      if (current === '/') break;
+      current = parentPathOf(current);
+    }
+
+    return ancestors;
+  };
+
+  const invalidateChildrenCache = (connectionUuid: string, path: string) => {
+    delete childrenCache.value[cacheKey(connectionUuid, path)];
+  };
 
   // Get current path for a connection
   const getCurrentPath = (connectionUuid: string): string => {
@@ -152,10 +174,33 @@ export const useZkTreeStore = defineStore('zkTree', () => {
 
   // After create: invalidate parent cache and refresh if needed
   const onNodeCreated = async (connectionUuid: string, parentPath: string) => {
-    const key = cacheKey(connectionUuid, parentPath);
-    delete childrenCache.value[key];
+    invalidateChildrenCache(connectionUuid, parentPath);
     if (getCurrentPath(connectionUuid) === parentPath) {
       await fetchChildren(connectionUuid, parentPath, true);
+    }
+  };
+
+  // After full-path create: invalidate affected parent caches and optionally refresh current path
+  const onNodeCreatedAtPath = async (
+    connectionUuid: string,
+    createdPath: string,
+    options: NodeCreatedAtPathOptions = {},
+  ) => {
+    const {
+      invalidateAncestors = true,
+      refreshCurrentPath = false,
+    } = options;
+    const parentPaths = invalidateAncestors
+      ? ancestorPathsOf(createdPath)
+      : [parentPathOf(createdPath)];
+    const invalidatedPaths = new Set(parentPaths);
+
+    parentPaths.forEach(path => invalidateChildrenCache(connectionUuid, path));
+    invalidateChildrenCache(connectionUuid, createdPath);
+
+    const currentPath = getCurrentPath(connectionUuid);
+    if (refreshCurrentPath || invalidatedPaths.has(currentPath)) {
+      await fetchChildren(connectionUuid, currentPath, true);
     }
   };
 
@@ -182,6 +227,7 @@ export const useZkTreeStore = defineStore('zkTree', () => {
     onNodeDeleted,
     onNodeDeletedRecursive,
     onNodeCreated,
+    onNodeCreatedAtPath,
     clearConnection,
   };
 });

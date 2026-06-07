@@ -182,11 +182,15 @@ export default {
   },
   createNode: {
     title: '创建子节点',
+    fullPathTitle: '创建节点',
     nodeName: '节点名称或相对路径',
+    nodeFullPath: '节点完整路径',
     nodeData: '节点数据（可选）',
     createMissingParents: '创建缺失的父节点',
+    invalidFullPath: '请输入有效节点路径，不能是根路径 /',
     placeholder: {
       name: '例如 app/config/db',
+      fullPath: '例如 /app/config/db',
       data: '请输入节点数据',
     },
   },

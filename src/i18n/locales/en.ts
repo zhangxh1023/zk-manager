@@ -182,11 +182,15 @@ export default {
   },
   createNode: {
     title: 'Create Child Node',
+    fullPathTitle: 'Create Node',
     nodeName: 'node name or relative path',
+    nodeFullPath: 'Full node path',
     nodeData: 'node data (optional)',
     createMissingParents: 'Create missing parent nodes',
+    invalidFullPath: 'Enter a valid node path. The root path / cannot be created.',
     placeholder: {
       name: 'e.g. app/config/db',
+      fullPath: 'e.g. /app/config/db',
       data: 'enter node data',
     },
   },

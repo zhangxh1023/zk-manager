@@ -3,31 +3,21 @@ import { useI18n } from 'vue-i18n';
 import { zkApi } from '../../../api/zk';
 import { confirmDialog } from '../../../composables/useConfirmDialog';
 import { useLogsStore } from '../../../stores/logs';
-import { useZkTreeStore } from '../../../stores/zkTree';
 import { useZnodeTabsStore, type ZnodeTab } from '../../../stores/znodeTabs';
 import { getErrorMessage } from '../../../utils/errors';
 import { showToast } from '../../../utils/toast';
-import { useZnodeDelete } from '../../../composables/useZnodeDelete';
-import { buildChildPath } from '../utils';
 
 export const useNodeActions = (
   tab: Ref<ZnodeTab>,
   hasUnsavedChanges: () => boolean,
   isSubmitting: Ref<boolean>,
   errorMessage: Ref<string>,
-  showDeleteDialog: Ref<boolean>,
 ) => {
   const { t } = useI18n();
   const znodeTabsStore = useZnodeTabsStore();
   const logsStore = useLogsStore();
-  const zkTreeStore = useZkTreeStore();
-  const { deleteNode, deleteNodeRecursive } = useZnodeDelete();
 
   const copiedPath = ref(false);
-  const showCreateDialog = ref(false);
-  const newNodeName = ref('');
-  const newNodeData = ref('');
-  const createMissingParents = ref(false);
   let copiedPathResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   const refresh = async () => {
@@ -54,14 +44,6 @@ export const useNodeActions = (
     } finally {
       isSubmitting.value = false;
     }
-  };
-
-  const openCreateDialog = () => {
-    newNodeName.value = '';
-    newNodeData.value = '';
-    createMissingParents.value = false;
-    errorMessage.value = '';
-    showCreateDialog.value = true;
   };
 
   const writeClipboardText = async (text: string) => {
@@ -106,69 +88,6 @@ export const useNodeActions = (
     }
   };
 
-  const createChildNode = async () => {
-    const childPath = buildChildPath(tab.value.path, newNodeName.value);
-    if (!childPath) {
-      errorMessage.value = 'Node name cannot be empty';
-      return;
-    }
-    isSubmitting.value = true;
-    errorMessage.value = '';
-    try {
-      const encoder = new TextEncoder();
-      const data = Array.from(encoder.encode(newNodeData.value));
-      if (createMissingParents.value) {
-        await zkApi.createNodeRecursive(tab.value.connectionUuid, childPath, data);
-      } else {
-        await zkApi.createNode(tab.value.connectionUuid, childPath, data);
-      }
-      const logMessage = createMissingParents.value
-        ? `Recursively created node ${childPath}`
-        : `Created node ${childPath}`;
-      await logsStore.addLog('current', 'CREATE', logMessage);
-      await zkTreeStore.onNodeCreated(tab.value.connectionUuid, tab.value.path);
-      showCreateDialog.value = false;
-      showToast.success(t('node.createSuccess', { path: childPath }));
-    } catch (error: unknown) {
-      const errMsg = getErrorMessage(error);
-      await logsStore.addLog('current', 'CREATE', `Failed to create node ${childPath}: ${errMsg}`, false);
-      showToast.error(errMsg);
-    } finally {
-      isSubmitting.value = false;
-    }
-  };
-
-  const removeNode = async () => {
-    isSubmitting.value = true;
-    errorMessage.value = '';
-    try {
-      const deleted = await deleteNode({
-        connectionUuid: tab.value.connectionUuid,
-        path: tab.value.path,
-        logConnectionName: 'current',
-      });
-      if (deleted) {
-        showDeleteDialog.value = false;
-      }
-    } finally {
-      isSubmitting.value = false;
-    }
-  };
-
-  const removeNodeRecursive = async () => {
-    isSubmitting.value = true;
-    errorMessage.value = '';
-    try {
-      await deleteNodeRecursive({
-        connectionUuid: tab.value.connectionUuid,
-        path: tab.value.path,
-        logConnectionName: 'current',
-      });
-    } finally {
-      isSubmitting.value = false;
-    }
-  };
-
   onUnmounted(() => {
     if (copiedPathResetTimer) {
       clearTimeout(copiedPathResetTimer);
@@ -179,14 +98,6 @@ export const useNodeActions = (
   return {
     copiedPath,
     copyPath,
-    createChildNode,
-    createMissingParents,
-    newNodeData,
-    newNodeName,
-    openCreateDialog,
     refresh,
-    removeNode,
-    removeNodeRecursive,
-    showCreateDialog,
   };
 };

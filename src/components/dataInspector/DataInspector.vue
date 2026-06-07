@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, toRef, watch } from 'vue';
+import { computed, toRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 import type { ZnodeTab } from '../../stores/znodeTabs';
 import AclEditDialog from './components/AclEditDialog.vue';
 import AclTabPanel from './components/AclTabPanel.vue';
 import ConfirmDeleteDialog from './components/ConfirmDeleteDialog.vue';
-import CreateNodeDialog from './components/CreateNodeDialog.vue';
 import DataInspectorHeader from './components/DataInspectorHeader.vue';
 import DataTabPanel from './components/DataTabPanel.vue';
 import MetaTabPanel from './components/MetaTabPanel.vue';
@@ -23,7 +22,6 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const tabRef = toRef(props, 'tab');
-const showDeleteDialog = ref(false);
 
 const {
   dataFormat,
@@ -39,21 +37,12 @@ const {
 const {
   copiedPath,
   copyPath,
-  createChildNode,
-  createMissingParents,
-  newNodeData,
-  newNodeName,
-  openCreateDialog,
   refresh,
-  removeNode,
-  removeNodeRecursive,
-  showCreateDialog,
 } = useNodeActions(
   tabRef,
   hasUnsavedChanges,
   isSubmitting,
   errorMessage,
-  showDeleteDialog,
 );
 
 const {
@@ -109,9 +98,6 @@ watch(isDirty, (dirty) => {
       :is-watching="isWatching"
       :timeline-change-count="timelineChangeCount"
       @copy-path="copyPath"
-      @open-create="openCreateDialog"
-      @open-delete="showDeleteDialog = true"
-      @open-recursive-delete="removeNodeRecursive"
       @open-timeline="openTimelineDialog"
       @refresh="refresh"
       @toggle-watch="toggleWatch"
@@ -172,16 +158,6 @@ watch(isDirty, (dirty) => {
       @select-entry="selectedTimelineId = $event"
     />
 
-    <CreateNodeDialog
-      v-model:open="showCreateDialog"
-      v-model:create-missing-parents="createMissingParents"
-      v-model:node-data="newNodeData"
-      v-model:node-name="newNodeName"
-      :error-message="errorMessage"
-      :is-submitting="isSubmitting"
-      @submit="createChildNode"
-    />
-
     <AclEditDialog
       v-model:open="showAclDialog"
       :all-permissions-selected="allPermissionsSelected"
@@ -208,16 +184,6 @@ watch(isDirty, (dirty) => {
       content-class="max-w-sm"
       small
       @confirm="deleteAcl"
-    />
-
-    <ConfirmDeleteDialog
-      v-model:open="showDeleteDialog"
-      :cancel-text="t('connection.cancel')"
-      :confirm-text="t('node.delete')"
-      :is-submitting="isSubmitting"
-      :message="t('node.confirmDeleteMsg', { path: tab.path })"
-      :title="t('node.confirmDeleteTitle')"
-      @confirm="removeNode"
     />
   </div>
 </template>
