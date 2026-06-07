@@ -31,11 +31,11 @@ onMounted(async () => {
       direction="horizontal"
       class="h-full w-full"
     >
-      <ResizablePanel :default-size="27">
+      <ResizablePanel :default-size="32">
         <LeftBolck />
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel :default-size="73">
+      <ResizablePanel :default-size="68">
         <RightBlock />
       </ResizablePanel>
     </ResizablePanelGroup>
