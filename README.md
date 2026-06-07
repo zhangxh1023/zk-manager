@@ -34,7 +34,6 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 - [x] Delete empty nodes
 - [x] Recursive delete nodes and child subtrees
 - [x] Modify node data
-- [x] Export/import node data
 
 #### ACL Management
 - [x] View node ACL
@@ -49,7 +48,6 @@ A cross-platform ZooKeeper GUI client built with Tauri + Vue 3 + TypeScript.
 #### Others
 - [x] Node data monitoring (Watcher)
 - [x] Node watch timeline (temporarily records node changes while watching)
-- [x] Import/export connection configurations
 
 ### Incomplete
 

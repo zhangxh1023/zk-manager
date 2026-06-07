@@ -14,7 +14,6 @@ import WatchTimelineDialog from './components/WatchTimelineDialog.vue';
 import { useAclEditor } from './composables/useAclEditor';
 import { useDataEditor } from './composables/useDataEditor';
 import { useNodeActions } from './composables/useNodeActions';
-import { useNodeTransfer } from './composables/useNodeTransfer';
 import { useWatchTimeline } from './composables/useWatchTimeline';
 import { getStatRows } from './utils';
 
@@ -55,16 +54,6 @@ const {
   isSubmitting,
   errorMessage,
   showDeleteDialog,
-);
-
-const {
-  exportNodeData,
-  importNodeData,
-} = useNodeTransfer(
-  tabRef,
-  hasUnsavedChanges,
-  isSubmitting,
-  errorMessage,
 );
 
 const {
@@ -120,8 +109,6 @@ watch(isDirty, (dirty) => {
       :is-watching="isWatching"
       :timeline-change-count="timelineChangeCount"
       @copy-path="copyPath"
-      @export-node-data="exportNodeData"
-      @import-node-data="importNodeData"
       @open-create="openCreateDialog"
       @open-delete="showDeleteDialog = true"
       @open-recursive-delete="removeNodeRecursive"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Clock3, Copy, Download, Eye, EyeOff, FolderX, Plus, RefreshCw, Trash2, Upload } from 'lucide-vue-next';
+import { Check, Clock3, Copy, Eye, EyeOff, FolderX, Plus, RefreshCw, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { Button } from '../../ui/button';
 import type { ZnodeTab } from '../../../stores/znodeTabs';
@@ -15,8 +15,6 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'copy-path'): void;
-  (e: 'export-node-data'): void;
-  (e: 'import-node-data'): void;
   (e: 'open-create'): void;
   (e: 'open-delete'): void;
   (e: 'open-recursive-delete'): void;
@@ -104,28 +102,6 @@ const { t } = useI18n();
         </span>
       </Button>
       <div class="w-[1px] h-4 bg-sidebar-border mx-1" />
-      <Button
-        :aria-label="t('node.importData')"
-        :title="t('node.importData')"
-        variant="ghost"
-        size="icon"
-        :disabled="isSubmitting || tab.isDeleted"
-        class="h-7 w-7 text-muted-foreground hover:text-foreground"
-        @click="emit('import-node-data')"
-      >
-        <Upload class="size-4" />
-      </Button>
-      <Button
-        :aria-label="t('node.exportData')"
-        :title="t('node.exportData')"
-        variant="ghost"
-        size="icon"
-        :disabled="isSubmitting || tab.isDeleted"
-        class="h-7 w-7 text-muted-foreground hover:text-foreground"
-        @click="emit('export-node-data')"
-      >
-        <Download class="size-4" />
-      </Button>
       <Button
         :aria-label="t('node.createChild')"
         variant="ghost"

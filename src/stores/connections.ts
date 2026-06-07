@@ -5,7 +5,6 @@ import { zkApi } from '../api/zk';
 import { secretsApi } from '../api/secrets';
 import { useLogsStore } from './logs';
 import { getErrorMessage } from '../utils/errors';
-import type { ExportedConnection } from '../utils/connectionTransfer';
 
 export interface Connection {
   uuid: string;
@@ -33,21 +32,10 @@ type ConnectConnectionOptions = {
   trustUnknownSshHostKey?: boolean;
 };
 
-export interface ConnectionImportSummary {
-  added: number;
-  updated: number;
-}
-
 const normalizeSecrets = (secrets: ConnectionSecrets): ConnectionSecrets => ({
   password: secrets.password || undefined,
   ssh_password: secrets.ssh_password || undefined,
 });
-
-const hasOwn = <K extends PropertyKey>(
-  value: object,
-  key: K,
-): value is object & Record<K, unknown> =>
-  Object.prototype.hasOwnProperty.call(value, key);
 
 export const useConnectionsStore = defineStore('connections', () => {
   const connections = ref<Connection[]>([]);
@@ -134,68 +122,6 @@ export const useConnectionsStore = defineStore('connections', () => {
     });
     secretCache.delete(uuid);
     await reloadConnections();
-  };
-
-  const saveImportedSecrets = async (conn: Connection, imported: ExportedConnection) => {
-    if (!hasOwn(imported, 'password') && !hasOwn(imported, 'ssh_password')) {
-      return;
-    }
-
-    const currentSecrets: ConnectionSecrets = await loadConnectionSecrets(conn.uuid).catch(() => ({}));
-    await saveConnectionSecrets({
-      ...conn,
-      password: hasOwn(imported, 'password')
-        ? imported.password
-        : currentSecrets.password,
-      ssh_password: hasOwn(imported, 'ssh_password')
-        ? imported.ssh_password
-        : currentSecrets.ssh_password,
-    });
-  };
-
-  const importConnections = async (
-    importedConnections: ExportedConnection[],
-  ): Promise<ConnectionImportSummary> => {
-    const { v4: uuidv4 } = await import('uuid');
-    const existingUuids = new Set(connections.value.map(conn => conn.uuid));
-    const usedUuids = new Set<string>();
-    let added = 0;
-    let updated = 0;
-
-    for (const imported of importedConnections) {
-      const requestedUuid = imported.uuid && !usedUuids.has(imported.uuid)
-        ? imported.uuid
-        : undefined;
-      const uuid = requestedUuid || uuidv4();
-      const exists = existingUuids.has(uuid);
-      const connection: Connection = {
-        uuid,
-        name: imported.name || imported.url,
-        url: imported.url,
-        username: imported.username,
-        use_ssh: imported.use_ssh ?? false,
-        ssh_host: imported.ssh_host,
-        ssh_port: imported.ssh_port,
-        ssh_username: imported.ssh_username,
-        ssh_auth_method: imported.ssh_auth_method,
-        ssh_key_path: imported.ssh_key_path,
-      };
-
-      if (exists) {
-        await appDataApi.updateConnection(connection);
-        updated += 1;
-      } else {
-        await appDataApi.insertConnection(connection);
-        existingUuids.add(uuid);
-        added += 1;
-      }
-
-      await saveImportedSecrets(connection, imported);
-      usedUuids.add(uuid);
-    }
-
-    await reloadConnections();
-    return { added, updated };
   };
 
   const isConnected = (uuid: string) => connectedSet.value.has(uuid);
@@ -285,7 +211,6 @@ export const useConnectionsStore = defineStore('connections', () => {
     reloadConnections,
     loadConnectionSecrets,
     addConnection,
-    importConnections,
     updateConnection,
     removeConnection,
     isConnected,
