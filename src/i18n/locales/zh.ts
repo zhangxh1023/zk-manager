@@ -113,9 +113,7 @@ export default {
     },
   },
   search: {
-    placeholder: '搜索当前子树',
-    run: '搜索节点',
-    clear: '清空搜索',
+    placeholder: '筛选当前列表',
     noResults: '没有匹配节点',
   },
   acl: {

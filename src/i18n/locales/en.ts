@@ -113,9 +113,7 @@ export default {
     },
   },
   search: {
-    placeholder: 'Search current subtree',
-    run: 'Search nodes',
-    clear: 'Clear search',
+    placeholder: 'Filter current list',
     noResults: 'No matching nodes',
   },
   acl: {

@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, watch, ref } from 'vue';
-import { ArrowLeft, ArrowRight, Plus, RefreshCw, Search, X } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, onMounted, watch, ref } from 'vue';
+import { ArrowLeft, ArrowRight, Plus, RefreshCw, Search } from 'lucide-vue-next';
 import { useZkTreeStore } from '../../stores/zkTree';
-import { useZnodeTabsStore } from '../../stores/znodeTabs';
 import { useLogsStore } from '../../stores/logs';
 import ListNode from './ListNode.vue';
 import { getErrorMessage } from '../../utils/errors';
-import { zkApi, type ZnodeSearchResult } from '../../api/zk';
+import { zkApi } from '../../api/zk';
 import { showToast } from '../../utils/toast';
 import { useI18n } from 'vue-i18n';
-import { confirmDialog } from '../../composables/useConfirmDialog';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -21,7 +19,7 @@ import {
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
-import { normalizeCreateNodePath } from './utils';
+import { filterZkListNodes, normalizeCreateNodePath } from './utils';
 
 const props = defineProps<{
   connectionUuid: string;
@@ -30,21 +28,16 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const zkTreeStore = useZkTreeStore();
-const znodeTabsStore = useZnodeTabsStore();
 const logsStore = useLogsStore();
+const FILTER_DEBOUNCE_MS = 300;
 
 const currentPath = computed(() => zkTreeStore.getCurrentPath(props.connectionUuid));
 const children = computed(() => zkTreeStore.getChildren(props.connectionUuid, currentPath.value));
 const loading = computed(() => zkTreeStore.isLoading(props.connectionUuid, currentPath.value));
 const error = ref<string | null>(null);
 const searchQuery = ref('');
-const searchResults = ref<ZnodeSearchResult[]>([]);
-const searchLoading = ref(false);
-const searchError = ref<string | null>(null);
-const hasSearched = ref(false);
-const hasSearchState = computed(() =>
-  searchQuery.value.trim().length > 0 || searchResults.value.length > 0 || searchError.value !== null,
-);
+const activeFilterQuery = ref('');
+const filteredChildren = computed(() => filterZkListNodes(children.value, activeFilterQuery.value));
 const showCreateNodeDialog = ref(false);
 const createNodePath = ref('/');
 const createNodeData = ref('');
@@ -54,6 +47,35 @@ const isCreatingNode = ref(false);
 
 // Local input state
 const inputPath = ref('/');
+let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+const clearFilterDebounce = () => {
+  if (filterDebounceTimer === null) return;
+  clearTimeout(filterDebounceTimer);
+  filterDebounceTimer = null;
+};
+
+const applyFilter = () => {
+  clearFilterDebounce();
+  activeFilterQuery.value = searchQuery.value.trim();
+};
+
+const scheduleFilter = () => {
+  clearFilterDebounce();
+  filterDebounceTimer = setTimeout(applyFilter, FILTER_DEBOUNCE_MS);
+};
+
+const handleFilterInput = (e: Event) => {
+  const target = e.target as HTMLInputElement;
+  searchQuery.value = target.value;
+  scheduleFilter();
+};
+
+const clearFilter = () => {
+  clearFilterDebounce();
+  searchQuery.value = '';
+  activeFilterQuery.value = '';
+};
 
 // Sync input when currentPath changes externally
 watch(currentPath, (newPath) => {
@@ -78,10 +100,12 @@ watch(() => props.connected, async (connected) => {
     zkTreeStore.clearConnection(props.connectionUuid);
     inputPath.value = '/';
     error.value = null;
-    clearSearch();
+    clearFilter();
     showCreateNodeDialog.value = false;
   }
 });
+
+onBeforeUnmount(clearFilterDebounce);
 
 const handleInput = (e: Event) => {
   const target = e.target as HTMLInputElement;
@@ -178,77 +202,6 @@ const createNodeByFullPath = async () => {
   }
 };
 
-const parentPathOf = (path: string) => {
-  if (path === '/') return '/';
-  return path.substring(0, path.lastIndexOf('/')) || '/';
-};
-
-const runSearch = async () => {
-  const query = searchQuery.value.trim();
-  if (!query) {
-    searchResults.value = [];
-    searchError.value = null;
-    return;
-  }
-
-  searchLoading.value = true;
-  searchError.value = null;
-  try {
-    searchResults.value = await zkApi.searchNodes(props.connectionUuid, currentPath.value, query, 50);
-    hasSearched.value = true;
-    await logsStore.addLog(
-      props.connectionUuid,
-      'SEARCH',
-      `Searched ${currentPath.value} for "${query}", results: ${searchResults.value.length}`,
-    );
-  } catch (err) {
-    const message = getErrorMessage(err);
-    searchError.value = message;
-    showToast.error(message);
-  } finally {
-    searchLoading.value = false;
-  }
-};
-
-const openNodePath = async (path: string) => {
-  try {
-    const dirtyTemporaryTab = znodeTabsStore.getDirtyTemporaryTabForReplacement(
-      props.connectionUuid,
-      path,
-    );
-    if (dirtyTemporaryTab && !(await confirmDialog(t('tabs.confirmReplaceDirty')))) {
-      return;
-    }
-
-    const details = await zkApi.getDetails(props.connectionUuid, path);
-    znodeTabsStore.replaceOrCreateTemporaryTab({
-      connectionUuid: props.connectionUuid,
-      path,
-      znodeData: details.data,
-      stat: details.stat,
-      acl: details.acl,
-      isActive: true,
-      isTemporary: true,
-    });
-    await zkTreeStore.navigateTo(props.connectionUuid, parentPathOf(path));
-    await logsStore.addLog(props.connectionUuid, 'NAVIGATE', `Opened node ${path}`);
-  } catch (err) {
-    const message = getErrorMessage(err);
-    showToast.error(message);
-  }
-};
-
-const openSearchResult = async (result: ZnodeSearchResult) => {
-  await openNodePath(result.path);
-};
-
-function clearSearch() {
-  searchQuery.value = '';
-  searchResults.value = [];
-  searchError.value = null;
-  hasSearched.value = false;
-}
-
 const clearError = () => {
   error.value = null;
   inputPath.value = currentPath.value;
@@ -315,73 +268,20 @@ const clearError = () => {
       </button>
     </div>
 
-    <!-- Search Row -->
-    <div class="px-3 py-2 border-b border-border/30 space-y-2">
-      <div class="flex items-center gap-2">
-        <div class="relative flex-1 min-w-0">
-          <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="w-full h-8 pl-8 pr-3 text-sm rounded-md border border-border bg-background transition-colors outline-none focus:border-primary"
-            :class="searchError ? 'border-destructive' : ''"
-            :placeholder="t('search.placeholder')"
-            @keydown.enter.prevent="runSearch"
-          >
-        </div>
-        <button
-          :aria-label="t('search.run')"
-          :disabled="!searchQuery.trim() || searchLoading"
-          class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border disabled:opacity-40 disabled:cursor-not-allowed"
-          :title="t('search.run')"
-          @click="runSearch"
+    <!-- Filter Row -->
+    <div class="px-3 py-2 border-b border-border/30">
+      <div class="relative min-w-0">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <input
+          :value="searchQuery"
+          type="text"
+          data-testid="znode-list-filter"
+          class="w-full h-8 pl-8 pr-3 text-sm rounded-md border border-border bg-background transition-colors outline-none focus:border-primary"
+          :placeholder="t('search.placeholder')"
+          :aria-label="t('search.placeholder')"
+          @input="handleFilterInput"
+          @keydown.enter.prevent="applyFilter"
         >
-          <RefreshCw
-            v-if="searchLoading"
-            class="w-4 h-4 animate-spin"
-          />
-          <Search
-            v-else
-            class="w-4 h-4"
-          />
-        </button>
-        <button
-          v-if="hasSearchState"
-          :aria-label="t('search.clear')"
-          class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border"
-          :title="t('search.clear')"
-          @click="clearSearch"
-        >
-          <X class="w-4 h-4" />
-        </button>
-      </div>
-
-      <div
-        v-if="searchError"
-        class="text-xs text-destructive truncate"
-      >
-        {{ searchError }}
-      </div>
-      <div
-        v-else-if="searchResults.length > 0"
-        class="max-h-40 overflow-y-auto rounded-md border border-border/50 bg-background"
-      >
-        <button
-          v-for="result in searchResults"
-          :key="result.path"
-          class="w-full px-2 py-1.5 text-left text-xs hover:bg-accent transition-colors"
-          :title="result.path"
-          @click="openSearchResult(result)"
-        >
-          <span class="block truncate font-medium text-foreground">{{ result.name }}</span>
-          <span class="block truncate text-muted-foreground">{{ result.path }}</span>
-        </button>
-      </div>
-      <div
-        v-else-if="hasSearched && searchQuery.trim() && !searchLoading"
-        class="text-xs text-muted-foreground"
-      >
-        {{ t('search.noResults') }}
       </div>
     </div>
 
@@ -416,13 +316,21 @@ const clearError = () => {
       No children
     </div>
 
+    <!-- Filtered Empty State -->
+    <div
+      v-else-if="filteredChildren.length === 0"
+      class="flex items-center justify-center py-6 text-muted-foreground text-xs"
+    >
+      {{ t('search.noResults') }}
+    </div>
+
     <!-- Node List -->
     <div
       v-else
       class="py-1"
     >
       <ListNode
-        v-for="node in children"
+        v-for="node in filteredChildren"
         :key="node.path"
         :node="node"
         :connection-uuid="connectionUuid"
