@@ -45,6 +45,8 @@ export default {
     confirmUnknownSshHostKeyTitle: '信任 SSH 主机？',
     confirmUnknownSshHostKey: 'SSH 主机 {host}:{port} 不在 known_hosts 中。是否信任该主机并添加到 ~/.ssh/known_hosts 后继续连接？请先确认这是你期望连接的主机。',
     trustSshHost: '信任并继续',
+    dragToReorder: '拖动排序',
+    reorderFailed: '连接排序保存失败：{message}',
   },
   node: {
     createChild: '创建子节点',

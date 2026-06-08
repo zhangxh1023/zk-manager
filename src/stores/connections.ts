@@ -19,6 +19,7 @@ export interface Connection {
   ssh_auth_method?: string;
   ssh_password?: string;
   ssh_key_path?: string;
+  sort_order?: number;
 }
 
 type ConnectionSecrets = Partial<Pick<Connection, 'password' | 'ssh_password'>>;
@@ -71,6 +72,7 @@ export const useConnectionsStore = defineStore('connections', () => {
       ssh_username: item.ssh_username || undefined,
       ssh_auth_method: item.ssh_auth_method || undefined,
       ssh_key_path: item.ssh_key_path || undefined,
+      sort_order: item.sort_order,
     }));
   };
 
@@ -122,6 +124,28 @@ export const useConnectionsStore = defineStore('connections', () => {
     });
     secretCache.delete(uuid);
     await reloadConnections();
+  };
+
+  const reorderConnections = async (orderedUuids: string[]) => {
+    const previousConnections = connections.value;
+    const orderedUuidSet = new Set(orderedUuids);
+    const connectionsByUuid = new Map(connections.value.map(conn => [conn.uuid, conn]));
+    const reorderedConnections = orderedUuids
+      .map(uuid => connectionsByUuid.get(uuid))
+      .filter((conn): conn is Connection => Boolean(conn));
+    const remainingConnections = connections.value.filter(conn => !orderedUuidSet.has(conn.uuid));
+
+    connections.value = [...reorderedConnections, ...remainingConnections].map((conn, index) => ({
+      ...conn,
+      sort_order: index,
+    }));
+
+    try {
+      await appDataApi.reorderConnections(connections.value.map(conn => conn.uuid));
+    } catch (error) {
+      connections.value = previousConnections;
+      throw error;
+    }
   };
 
   const isConnected = (uuid: string) => connectedSet.value.has(uuid);
@@ -213,6 +237,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     addConnection,
     updateConnection,
     removeConnection,
+    reorderConnections,
     isConnected,
     isConnecting,
     isExpanded,

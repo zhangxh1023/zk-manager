@@ -22,6 +22,7 @@ pub(crate) struct DbConnectionRow {
   ssh_auth_method: Option<String>,
   ssh_password: Option<String>,
   ssh_key_path: Option<String>,
+  sort_order: i64,
 }
 
 #[derive(Serialize)]
@@ -111,9 +112,10 @@ async fn list_connections_with_pool(pool: &SqlitePool) -> AppResult<Vec<DbConnec
     r#"
     SELECT
       uuid, name, url, username, password, use_ssh, ssh_host, ssh_port,
-      ssh_username, ssh_auth_method, ssh_password, ssh_key_path
+      ssh_username, ssh_auth_method, ssh_password, ssh_key_path,
+      COALESCE(sort_order, id) AS sort_order
     FROM connections
-    ORDER BY id ASC
+    ORDER BY COALESCE(sort_order, id) ASC, id ASC
     "#,
   )
   .fetch_all(pool)
@@ -136,6 +138,7 @@ async fn list_connections_with_pool(pool: &SqlitePool) -> AppResult<Vec<DbConnec
         ssh_auth_method: row.get("ssh_auth_method"),
         ssh_password: row.get("ssh_password"),
         ssh_key_path: row.get("ssh_key_path"),
+        sort_order: row.try_get("sort_order").unwrap_or(0),
       })
       .collect(),
   )
@@ -184,8 +187,8 @@ async fn insert_connection_with_pool(
     r#"
     INSERT INTO connections (
       uuid, name, url, username, password, use_ssh, ssh_host, ssh_port,
-      ssh_username, ssh_auth_method, ssh_password, ssh_key_path
-    ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?)
+      ssh_username, ssh_auth_method, ssh_password, ssh_key_path, sort_order
+    ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM connections), 0))
     "#,
   )
   .bind(connection.uuid)
@@ -299,6 +302,30 @@ async fn delete_connection_with_pool(pool: &SqlitePool, uuid: &str) -> AppResult
     .execute(pool)
     .await
     .map_err(db_error)?;
+  Ok(())
+}
+
+async fn reorder_connections_with_pool(
+  pool: &SqlitePool,
+  ordered_uuids: Vec<String>,
+) -> AppResult<()> {
+  let mut transaction = pool.begin().await.map_err(db_error)?;
+  for (sort_order, uuid) in ordered_uuids.iter().enumerate() {
+    let result = sqlx::query("UPDATE connections SET sort_order = ? WHERE uuid = ?")
+      .bind(sort_order as i64)
+      .bind(uuid)
+      .execute(&mut *transaction)
+      .await
+      .map_err(db_error)?;
+    if result.rows_affected() == 0 {
+      return Err(AppError::with_detail(
+        "VALIDATION_ERROR",
+        "Unknown connection in reorder request",
+        uuid.clone(),
+      ));
+    }
+  }
+  transaction.commit().await.map_err(db_error)?;
   Ok(())
 }
 
@@ -453,6 +480,15 @@ pub(crate) async fn delete_connection(app: tauri::AppHandle, uuid: String) -> Ap
 }
 
 #[tauri::command]
+pub(crate) async fn reorder_connections(
+  app: tauri::AppHandle,
+  ordered_uuids: Vec<String>,
+) -> AppResult<()> {
+  let pool = db_pool(&app).await?;
+  reorder_connections_with_pool(&pool, ordered_uuids).await
+}
+
+#[tauri::command]
 pub(crate) async fn list_logs(
   app: tauri::AppHandle,
   page: i64,
@@ -531,7 +567,8 @@ mod tests {
         ssh_username TEXT,
         ssh_auth_method TEXT DEFAULT 'password',
         ssh_password TEXT,
-        ssh_key_path TEXT
+        ssh_key_path TEXT,
+        sort_order INTEGER
       );
       "#,
     )
@@ -639,6 +676,40 @@ mod tests {
 
     delete_connection_with_pool(&pool, "conn-1").await.unwrap();
     assert!(list_connections_with_pool(&pool).await.unwrap().is_empty());
+  }
+
+  #[tokio::test]
+  async fn connections_can_be_reordered() {
+    let pool = test_pool().await;
+
+    let mut conn_1 = connection_input("conn-1", false);
+    conn_1.name = "First".to_string();
+    let mut conn_2 = connection_input("conn-2", false);
+    conn_2.name = "Second".to_string();
+    let mut conn_3 = connection_input("conn-3", false);
+    conn_3.name = "Third".to_string();
+
+    insert_connection_with_pool(&pool, conn_1).await.unwrap();
+    insert_connection_with_pool(&pool, conn_2).await.unwrap();
+    insert_connection_with_pool(&pool, conn_3).await.unwrap();
+
+    reorder_connections_with_pool(
+      &pool,
+      vec![
+        "conn-3".to_string(),
+        "conn-1".to_string(),
+        "conn-2".to_string(),
+      ],
+    )
+    .await
+    .unwrap();
+
+    let connections = list_connections_with_pool(&pool).await.unwrap();
+    let ordered_uuids: Vec<&str> = connections.iter().map(|conn| conn.uuid.as_str()).collect();
+    assert_eq!(ordered_uuids, vec!["conn-3", "conn-1", "conn-2"]);
+    assert_eq!(connections[0].sort_order, 0);
+    assert_eq!(connections[1].sort_order, 1);
+    assert_eq!(connections[2].sort_order, 2);
   }
 
   #[tokio::test]

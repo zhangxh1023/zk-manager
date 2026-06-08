@@ -45,6 +45,8 @@ export default {
     confirmUnknownSshHostKeyTitle: 'Trust SSH Host?',
     confirmUnknownSshHostKey: 'SSH host {host}:{port} is not in known_hosts. Trust this host, add it to ~/.ssh/known_hosts, and continue connecting? Confirm this is the host you expect before accepting.',
     trustSshHost: 'Trust and Continue',
+    dragToReorder: 'Drag to reorder',
+    reorderFailed: 'Failed to save connection order: {message}',
   },
   node: {
     createChild: 'create child node',

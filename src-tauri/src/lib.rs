@@ -50,6 +50,7 @@ pub fn run() {
       database::insert_connection,
       database::update_connection,
       database::delete_connection,
+      database::reorder_connections,
       database::list_logs,
       database::add_log,
       database::clear_logs,

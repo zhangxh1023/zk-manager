@@ -26,5 +26,11 @@ pub fn get_migrations() -> Vec<Migration> {
       sql: include_str!("./migrations/v4.sql"),
       kind: MigrationKind::Up,
     },
+    Migration {
+      version: 5,
+      description: "add_connection_sort_order",
+      sql: include_str!("./migrations/v5.sql"),
+      kind: MigrationKind::Up,
+    },
   ]
 }

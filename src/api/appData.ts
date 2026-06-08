@@ -14,6 +14,7 @@ export interface DbConnectionRow {
   ssh_auth_method: string | null;
   ssh_password: string | null;
   ssh_key_path: string | null;
+  sort_order: number;
 }
 
 export interface ConnectionLegacySecrets {
@@ -70,6 +71,8 @@ export const appDataApi = {
   updateConnection: (connection: Connection) =>
     invoke<void>('update_connection', { connection: toConnectionInput(connection) }),
   deleteConnection: (uuid: string) => invoke<void>('delete_connection', { uuid }),
+  reorderConnections: (orderedUuids: string[]) =>
+    invoke<void>('reorder_connections', { orderedUuids }),
   listLogs: (page: number, pageSize: number) =>
     invoke<LogsPage>('list_logs', { page, pageSize }),
   addLog: (connectionName: string, command: string, details: string, success = true) =>

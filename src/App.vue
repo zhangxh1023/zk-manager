@@ -12,6 +12,8 @@ import { useSettingsStore } from './stores/settings';
 import { useI18n } from 'vue-i18n';
 import { Toaster } from './components/ui/sonner';
 import ConfirmDialogHost from './components/ui/confirm-dialog/ConfirmDialogHost.vue';
+import { getErrorMessage } from './utils/errors';
+import { showToast } from './utils/toast';
 import 'vue-sonner/style.css';
 
 const connectionsStore = useConnectionsStore();
@@ -21,7 +23,11 @@ const { locale } = useI18n();
 onMounted(async () => {
   await settingsStore.load();
   locale.value = settingsStore.settings.language;
-  connectionsStore.reloadConnections();
+  try {
+    await connectionsStore.reloadConnections();
+  } catch (error) {
+    showToast.error(getErrorMessage(error));
+  }
 });
 </script>
 

@@ -21,6 +21,13 @@
       "csp": null
     }
   },
+  "plugins": {
+    "sql": {
+      "preload": [
+        "sqlite:zk-manager-dev.db"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
