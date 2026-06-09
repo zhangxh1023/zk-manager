@@ -30,6 +30,8 @@ export default {
     confirmDeleteTitle: '确认删除连接',
     confirmDeleteNamed: '确定删除连接“{name}”吗？此操作不会删除 ZooKeeper 数据。',
     confirmDeleteDirty: '连接“{name}”有未保存的节点修改。删除连接会关闭这些标签并丢失未保存修改，但不会删除 ZooKeeper 数据。',
+    confirmEditDisconnectTitle: '断开后编辑连接',
+    confirmEditDisconnect: '编辑此连接前需要先断开连接。是否断开连接并继续编辑？',
     gotoNode: '跳转到节点',
     nodePath: '节点路径',
     goto: '跳转',

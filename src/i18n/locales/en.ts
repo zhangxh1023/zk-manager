@@ -30,6 +30,8 @@ export default {
     confirmDeleteTitle: 'Delete Connection',
     confirmDeleteNamed: 'Delete connection "{name}"? This will not delete ZooKeeper data.',
     confirmDeleteDirty: 'Connection "{name}" has unsaved node changes. Deleting it will close those tabs and discard unsaved changes, but will not delete ZooKeeper data.',
+    confirmEditDisconnectTitle: 'Disconnect Before Editing',
+    confirmEditDisconnect: 'Editing this connection requires disconnecting it first. Disconnect and continue editing?',
     gotoNode: 'Go to Node',
     nodePath: 'Node Path',
     goto: 'Go',

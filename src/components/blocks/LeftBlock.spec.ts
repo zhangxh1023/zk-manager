@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 import i18n from '../../i18n';
 import { appDataApi } from '../../api/appData';
+import { zkApi } from '../../api/zk';
 import { useConnectionsStore, type Connection } from '../../stores/connections';
+import { useZnodeTabsStore } from '../../stores/znodeTabs';
+import { confirmDialog } from '../../composables/useConfirmDialog';
 import LeftBlock from './LeftBlock.vue';
 
 vi.mock('../../api/appData', () => ({
@@ -31,14 +34,35 @@ vi.mock('../../api/zk', () => ({
   },
 }));
 
+vi.mock('../../composables/useConfirmDialog', () => ({
+  confirmDialog: vi.fn().mockResolvedValue(true),
+}));
+
 const stubWithSlot = { template: '<div><slot /></div>' };
 const passthroughStub = { props: ['asChild'], template: '<slot />' };
+const contextMenuItemStub = {
+  emits: ['select'],
+  props: ['variant'],
+  template: '<button type="button" @click="$emit(\'select\', $event)"><slot /></button>',
+};
 
 const testConnections: Connection[] = [
   { uuid: 'conn-a', name: 'Alpha', url: 'localhost:2181' },
   { uuid: 'conn-b', name: 'Beta', url: 'localhost:2182' },
   { uuid: 'conn-c', name: 'Gamma', url: 'localhost:2183' },
 ];
+
+const editDisconnectConfirm = {
+  title: 'Disconnect Before Editing',
+  message: 'Editing this connection requires disconnecting it first. Disconnect and continue editing?',
+  confirmText: 'Disconnect',
+  cancelText: 'Cancel',
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(confirmDialog).mockResolvedValue(true);
+});
 
 const mountLeftBlock = () => {
   const pinia = createPinia();
@@ -52,10 +76,13 @@ const mountLeftBlock = () => {
       stubs: {
         AppMenus: { template: '<div />', methods: { openSettings: vi.fn(), openLogs: vi.fn() } },
         Button: stubWithSlot,
-        ConnectionDialog: { template: '<div />' },
+        ConnectionDialog: {
+          props: ['open', 'mode', 'connection', 'saving', 'testing', 'errorMessage'],
+          template: '<div v-if="open" data-testid="connection-dialog">{{ mode }}:{{ connection?.uuid }}</div>',
+        },
         ContextMenu: stubWithSlot,
         ContextMenuContent: stubWithSlot,
-        ContextMenuItem: stubWithSlot,
+        ContextMenuItem: contextMenuItemStub,
         ContextMenuSeparator: { template: '<div />' },
         ContextMenuTrigger: passthroughStub,
         Dialog: stubWithSlot,
@@ -79,6 +106,9 @@ const rowOrder = (wrapper: VueWrapper) =>
   wrapper
     .findAll('[data-testid^="connection-row-"]')
     .map(row => row.attributes('data-testid')?.replace('connection-row-', ''));
+
+const editButtons = (wrapper: VueWrapper) =>
+  wrapper.findAll('button').filter(button => button.text() === 'Edit');
 
 const setRowRects = (wrapper: VueWrapper) => {
   const rects: Record<string, DOMRect> = {
@@ -137,7 +167,6 @@ const dispatchPointerEvent = (type: string, options: MouseEventInit & { pointerI
 
 describe('LeftBlock connection sorting', () => {
   it('previews connection order while dragging the whole row and saves it on pointer up', async () => {
-    vi.clearAllMocks();
     const { connectionsStore, wrapper } = mountLeftBlock();
     setRowRects(wrapper);
 
@@ -172,6 +201,101 @@ describe('LeftBlock connection sorting', () => {
     expect(appDataApi.reorderConnections).toHaveBeenCalledWith(['conn-b', 'conn-c', 'conn-a']);
     expect(connectionsStore.connections.map(conn => conn.uuid)).toEqual(['conn-b', 'conn-c', 'conn-a']);
     expect(wrapper.find('[data-testid="connection-drag-ghost"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+});
+
+describe('LeftBlock connection editing', () => {
+  it('disconnects a connected connection before opening the edit dialog', async () => {
+    const { connectionsStore, wrapper } = mountLeftBlock();
+    const znodeTabsStore = useZnodeTabsStore();
+    connectionsStore.connectedSet.add('conn-a');
+    connectionsStore.expandedSet.add('conn-a');
+    znodeTabsStore.znodeTabs = [
+      {
+        connectionUuid: 'conn-a',
+        path: '/',
+        znodeData: [],
+        stat: null,
+        acl: [],
+        isActive: true,
+        isTemporary: false,
+      },
+      {
+        connectionUuid: 'conn-b',
+        path: '/',
+        znodeData: [],
+        stat: null,
+        acl: [],
+        isActive: false,
+        isTemporary: false,
+      },
+    ];
+
+    await editButtons(wrapper)[0].trigger('click');
+    await flushPromises();
+
+    expect(zkApi.disconnect).toHaveBeenCalledWith('conn-a');
+    expect(confirmDialog).toHaveBeenCalledTimes(1);
+    expect(confirmDialog).toHaveBeenCalledWith(editDisconnectConfirm);
+    expect(connectionsStore.isConnected('conn-a')).toBe(false);
+    expect(connectionsStore.isExpanded('conn-a')).toBe(false);
+    expect(znodeTabsStore.znodeTabs.map(tab => tab.connectionUuid)).toEqual(['conn-b']);
+    expect(wrapper.get('[data-testid="connection-dialog"]').text()).toBe('edit:conn-a');
+
+    wrapper.unmount();
+  });
+
+  it('does not disconnect or open the edit dialog when edit disconnect is cancelled', async () => {
+    vi.mocked(confirmDialog).mockResolvedValue(false);
+    const { connectionsStore, wrapper } = mountLeftBlock();
+    connectionsStore.connectedSet.add('conn-a');
+
+    await editButtons(wrapper)[0].trigger('click');
+    await flushPromises();
+
+    expect(confirmDialog).toHaveBeenCalledTimes(1);
+    expect(confirmDialog).toHaveBeenCalledWith(editDisconnectConfirm);
+    expect(zkApi.disconnect).not.toHaveBeenCalled();
+    expect(connectionsStore.isConnected('conn-a')).toBe(true);
+    expect(wrapper.find('[data-testid="connection-dialog"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('does not open the edit dialog when dirty tab disconnect is cancelled', async () => {
+    vi.mocked(confirmDialog)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const { connectionsStore, wrapper } = mountLeftBlock();
+    const znodeTabsStore = useZnodeTabsStore();
+    connectionsStore.connectedSet.add('conn-a');
+    znodeTabsStore.znodeTabs = [
+      {
+        connectionUuid: 'conn-a',
+        path: '/',
+        znodeData: [],
+        stat: null,
+        acl: [],
+        isActive: true,
+        isTemporary: false,
+        isDirty: true,
+      },
+    ];
+
+    await editButtons(wrapper)[0].trigger('click');
+    await flushPromises();
+
+    expect(confirmDialog).toHaveBeenCalledTimes(2);
+    expect(confirmDialog).toHaveBeenNthCalledWith(1, editDisconnectConfirm);
+    expect(confirmDialog).toHaveBeenNthCalledWith(
+      2,
+      'This connection has unsaved node changes. Disconnecting will discard them. Continue?',
+    );
+    expect(zkApi.disconnect).not.toHaveBeenCalled();
+    expect(connectionsStore.isConnected('conn-a')).toBe(true);
+    expect(wrapper.find('[data-testid="connection-dialog"]').exists()).toBe(false);
 
     wrapper.unmount();
   });

@@ -100,15 +100,16 @@ const sshHostKeyPromptMessage = computed(() => {
 // Open AppMenus triggers
 const appMenusRef = ref<InstanceType<typeof AppMenus> | null>(null);
 
-const disconnect = async (conn: Connection) => {
+const disconnect = async (conn: Connection): Promise<boolean> => {
   if (
     znodeTabsStore.hasDirtyTabsByConnection(conn.uuid)
     && !(await confirmDialog(t('tabs.confirmDisconnectDirty')))
   ) {
-    return;
+    return false;
   }
   await connectionsStore.disconnectConnection(conn);
   znodeTabsStore.closeTabsByConnection(conn.uuid);
+  return true;
 };
 
 const resolveSshHostKeyPrompt = (trusted: boolean) => {
@@ -380,6 +381,17 @@ const openAddDialog = () => {
 
 const openEditDialog = async (conn: Connection, event?: Event) => {
   if (event) event.stopPropagation();
+  if (connectionsStore.isConnected(conn.uuid)) {
+    const shouldDisconnect = await confirmDialog({
+      title: t('connection.confirmEditDisconnectTitle'),
+      message: t('connection.confirmEditDisconnect'),
+      confirmText: t('connection.disconnect'),
+      cancelText: t('connection.cancel'),
+    });
+    if (!shouldDisconnect || !(await disconnect(conn))) {
+      return;
+    }
+  }
   currentDialogMode.value = 'edit';
   connectionDialogError.value = '';
   const secrets = await connectionsStore.loadConnectionSecrets(conn.uuid);
