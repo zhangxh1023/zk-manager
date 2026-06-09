@@ -13,10 +13,11 @@ pub(crate) async fn list_children(
   path: String,
 ) -> AppResult<Vec<String>> {
   let client_arc = client_for(&state, &connection_uuid)?;
-  let (children, _) = client_arc
+  let (mut children, _) = client_arc
     .get_children(&path)
     .await
     .map_err(|e| zk_error(e, "Failed to list children"))?;
+  sort_child_names(&mut children);
   Ok(children)
 }
 
@@ -305,6 +306,10 @@ fn child_path(parent: &str, child: &str) -> String {
   }
 }
 
+fn sort_child_names(children: &mut [String]) {
+  children.sort();
+}
+
 fn parse_permissions(perm_str: &str) -> AppResult<Permission> {
   let perm_str = perm_str.trim();
   if perm_str.eq_ignore_ascii_case("ALL") {
@@ -379,5 +384,20 @@ mod tests {
   fn builds_child_paths() {
     assert_eq!(child_path("/", "child"), "/child");
     assert_eq!(child_path("/parent", "child"), "/parent/child");
+  }
+
+  #[test]
+  fn sorts_child_names_by_default_string_order() {
+    let mut children = vec![
+      "z".to_string(),
+      "a".to_string(),
+      "b".to_string(),
+      "node-10".to_string(),
+      "node-2".to_string(),
+    ];
+
+    sort_child_names(&mut children);
+
+    assert_eq!(children, vec!["a", "b", "node-10", "node-2", "z"]);
   }
 }
