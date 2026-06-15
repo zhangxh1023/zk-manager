@@ -29,5 +29,13 @@ sqlx = { version = "0.8.6", features = ["sqlite", "runtime-tokio"] }
 russh = "0.49"
 async-trait = "0.1"
 ssh-key = "0.6"
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
 security-framework = "3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service"] }
