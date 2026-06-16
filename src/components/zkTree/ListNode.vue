@@ -27,6 +27,7 @@ import { showToast } from '../../utils/toast';
 import { getErrorMessage } from '../../utils/errors';
 import { confirmDialog } from '../../composables/useConfirmDialog';
 import { useZnodeDelete } from '../../composables/useZnodeDelete';
+import { exportZnodeSubtree } from '../../composables/useZnodeExport';
 
 const { t } = i18n.global;
 
@@ -49,6 +50,7 @@ const createMissingParents = ref(false);
 // Delete dialog state
 const showDeleteDialog = ref(false);
 const isDeleting = ref(false);
+const isExporting = ref(false);
 
 // Navigate into this node when clicking the name (activates existing tab or creates temporary tab)
 const handleNavigate = async () => {
@@ -149,6 +151,43 @@ const openDeleteDialog = () => {
   showDeleteDialog.value = true;
 };
 
+const handleExportNode = async () => {
+  if (isExporting.value) return;
+  const confirmed = await confirmDialog({
+    title: t('node.confirmExportTitle'),
+    message: t('node.confirmExportMsg', { path: props.node.path }),
+    confirmText: t('node.export'),
+  });
+  if (!confirmed) return;
+
+  isExporting.value = true;
+  try {
+    const result = await exportZnodeSubtree({
+      connectionUuid: props.connectionUuid,
+      path: props.node.path,
+    });
+    if (result.status === 'cancelled') return;
+
+    await logsStore.addLog(
+      props.connectionUuid,
+      'EXPORT',
+      `Exported node ${props.node.path} to ${result.filePath}, count: ${result.nodeCount}`,
+    );
+    showToast.success(t('node.exportSuccess', { count: result.nodeCount }));
+  } catch (err) {
+    const errorMsg = getErrorMessage(err);
+    await logsStore.addLog(
+      props.connectionUuid,
+      'EXPORT',
+      `Failed to export node ${props.node.path}: ${errorMsg}`,
+      false,
+    );
+    showToast.error(`${t('node.exportFailed')}: ${errorMsg}`);
+  } finally {
+    isExporting.value = false;
+  }
+};
+
 const confirmDelete = async () => {
   isDeleting.value = true;
   try {
@@ -195,6 +234,12 @@ const confirmRecursiveDelete = async () => {
       <ContextMenuContent>
         <ContextMenuItem @select="handleOpenInTab">
           {{ t('node.openInNewTab') }}
+        </ContextMenuItem>
+        <ContextMenuItem
+          :disabled="isExporting"
+          @select="handleExportNode"
+        >
+          {{ t('node.export') }}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem @select="openCreateDialog">
