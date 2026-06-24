@@ -73,6 +73,27 @@ describe('ZkList local filtering', () => {
     vi.useRealTimers();
   });
 
+  it('groups path navigation separately from list actions', async () => {
+    const wrapper = await mountZkList({
+      '/': ['alpha'],
+    });
+
+    const pathToolbar = wrapper.get('[data-testid="zk-path-toolbar"]');
+    const listToolbar = wrapper.get('[data-testid="zk-list-toolbar"]');
+
+    expect(pathToolbar.find('button[title="Go to parent"]').exists()).toBe(true);
+    expect(pathToolbar.find('button[title="Go to path"]').exists()).toBe(true);
+    expect(pathToolbar.find('button[title="Refresh"]').exists()).toBe(false);
+    expect(pathToolbar.find('[data-testid="znode-list-filter"]').exists()).toBe(false);
+
+    expect(listToolbar.find('[data-testid="znode-list-filter"]').exists()).toBe(true);
+    expect(listToolbar.find('button[title="Refresh"]').exists()).toBe(true);
+    expect(listToolbar.find('button[title="Create Node"]').exists()).toBe(true);
+    expect(listToolbar.find('button[title="Go to path"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
   it('debounces filtering by node name', async () => {
     const wrapper = await mountZkList({
       '/': ['alpha', 'beta', 'gamma'],

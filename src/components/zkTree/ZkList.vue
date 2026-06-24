@@ -210,12 +210,16 @@ const clearError = () => {
 
 <template>
   <div class="zk-list">
-    <!-- Single Row: Path Input + Controls -->
-    <div class="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b border-border/30">
+    <!-- Path Navigation Row -->
+    <div
+      data-testid="zk-path-toolbar"
+      class="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b border-border/30"
+    >
       <!-- Back Button -->
       <button
+        type="button"
         aria-label="Go to parent"
-        class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border"
+        class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         title="Go to parent"
         @click="navigateUp"
       >
@@ -228,49 +232,31 @@ const clearError = () => {
         <input
           type="text"
           :value="inputPath"
-          class="w-full h-8 pl-8 pr-3 text-sm rounded-md border border-border bg-background transition-colors outline-none focus:border-primary"
+          class="w-full h-8 pl-8 pr-10 text-sm rounded-md border border-border bg-background transition-colors outline-none focus:border-primary"
           :class="error ? 'border-destructive' : ''"
           placeholder="/path/to/node"
           @input="handleInput"
           @keydown.enter.prevent="handleKeydown"
         >
+        <!-- Go Button -->
+        <button
+          type="button"
+          aria-label="Go to path"
+          class="absolute right-0 top-0 w-8 h-8 flex items-center justify-center rounded-r-md border-l border-border/70 hover:bg-accent transition-colors text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          title="Go to path"
+          @click="handleNavigate"
+        >
+          <ArrowRight class="w-4 h-4" />
+        </button>
       </div>
-
-      <!-- Go Button -->
-      <button
-        aria-label="Go to path"
-        class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border"
-        title="Go to path"
-        @click="handleNavigate"
-      >
-        <ArrowRight class="w-4 h-4" />
-      </button>
-
-      <!-- Refresh Button -->
-      <button
-        aria-label="Refresh"
-        class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border"
-        title="Refresh"
-        @click="refresh"
-      >
-        <RefreshCw class="w-4 h-4" />
-      </button>
-
-      <!-- Create Node Button -->
-      <button
-        :aria-label="t('createNode.fullPathTitle')"
-        :disabled="!connected || isCreatingNode"
-        class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground shrink-0 border border-border disabled:opacity-40 disabled:cursor-not-allowed"
-        :title="t('createNode.fullPathTitle')"
-        @click="openCreateNodeDialog"
-      >
-        <Plus class="w-4 h-4" />
-      </button>
     </div>
 
-    <!-- Filter Row -->
-    <div class="px-3 py-2 border-b border-border/30">
-      <div class="relative min-w-0">
+    <!-- List Filter and Actions Row -->
+    <div
+      data-testid="zk-list-toolbar"
+      class="list-toolbar flex items-center gap-2 px-3 py-2 border-b border-border/30"
+    >
+      <div class="list-filter relative flex-1 min-w-0">
         <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
         <input
           :value="searchQuery"
@@ -282,6 +268,36 @@ const clearError = () => {
           @input="handleFilterInput"
           @keydown.enter.prevent="applyFilter"
         >
+      </div>
+
+      <div
+        class="list-toolbar-separator h-5 w-px bg-border/70 shrink-0"
+        aria-hidden="true"
+      />
+
+      <div class="list-actions flex items-center gap-1 shrink-0">
+        <!-- Refresh Button -->
+        <button
+          type="button"
+          aria-label="Refresh"
+          class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title="Refresh"
+          @click="refresh"
+        >
+          <RefreshCw class="w-4 h-4" />
+        </button>
+
+        <!-- Create Node Button -->
+        <button
+          type="button"
+          :aria-label="t('createNode.fullPathTitle')"
+          :disabled="!connected || isCreatingNode"
+          class="w-8 h-8 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed"
+          :title="t('createNode.fullPathTitle')"
+          @click="openCreateNodeDialog"
+        >
+          <Plus class="w-4 h-4" />
+        </button>
       </div>
     </div>
 
