@@ -5,7 +5,12 @@ import { confirmDialog } from '../../../composables/useConfirmDialog';
 import { useLogsStore } from '../../../stores/logs';
 import { useZnodeTabsStore, type ZnodeTab } from '../../../stores/znodeTabs';
 import { getErrorMessage } from '../../../utils/errors';
-import { formatBytes, parseBytes, type SerializationFormat } from '../../../utils/serializer';
+import {
+  formatBytes,
+  formatStructuredText,
+  parseBytes,
+  type SerializationFormat,
+} from '../../../utils/serializer';
 import { showToast } from '../../../utils/toast';
 import { FORMAT_OPTIONS } from '../utils';
 
@@ -66,6 +71,19 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
 
   watch(() => tab.value.path, syncEditValue);
 
+  const format = () => {
+    if (dataFormat.value !== 'json' && dataFormat.value !== 'xml') return;
+
+    errorMessage.value = '';
+    const result = formatStructuredText(editValue.value, dataFormat.value);
+    if (!result.success || result.data === undefined) {
+      errorMessage.value = result.error || 'Failed to format data';
+      return;
+    }
+
+    editValue.value = result.data;
+  };
+
   const save = async () => {
     isSubmitting.value = true;
     errorMessage.value = '';
@@ -107,6 +125,7 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
     dataFormat,
     editValue,
     errorMessage,
+    format,
     formatOptions: FORMAT_OPTIONS,
     hasUnsavedChanges,
     isDirty,

@@ -84,6 +84,7 @@ export default {
     acl: 'ACL',
     meta: 'Meta',
     save: 'Save',
+    format: 'Format',
     refresh: 'refresh',
     selectNode: 'select a node to view its details',
     watch: 'Watch',

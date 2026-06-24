@@ -29,6 +29,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (e: 'format'): void;
   (e: 'save'): void;
   (e: 'update:dataFormat', value: SerializationFormat): void;
   (e: 'update:editValue', value: string): void;
@@ -76,6 +77,15 @@ const editValueModel = computed({
           </SelectGroup>
         </SelectContent>
       </Select>
+      <Button
+        v-if="dataFormat === 'json' || dataFormat === 'xml'"
+        size="sm"
+        variant="outline"
+        :disabled="isSubmitting"
+        @click="emit('format')"
+      >
+        {{ t('tabs.format') }}
+      </Button>
     </div>
     <div class="flex-1 min-h-0 p-2 overflow-auto">
       <TextViewer

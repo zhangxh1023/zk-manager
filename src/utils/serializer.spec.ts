@@ -6,7 +6,10 @@ import {
   hexToBytes,
   bytesToBinary,
   binaryToBytes,
+  bytesToXml,
+  formatStructuredText,
   jsonToBytes,
+  xmlToBytes,
   bytesToJson,
 } from './serializer';
 
@@ -91,6 +94,50 @@ describe('Serializer Utilities', () => {
       // bytesToJson returns text if invalid
       const invalidBytes = textToBytes('invalid json');
       expect(bytesToJson(invalidBytes).data).toBe('invalid json');
+    });
+  });
+
+  describe('Structured Text Formatting', () => {
+    it('formats valid JSON and rejects invalid JSON', () => {
+      expect(formatStructuredText('{"nested":{"value":1}}', 'json')).toEqual({
+        success: true,
+        data: '{\n  "nested": {\n    "value": 1\n  }\n}',
+      });
+      expect(formatStructuredText('{invalid}', 'json')).toEqual({
+        success: false,
+        error: 'Invalid JSON',
+      });
+    });
+
+    it('formats valid XML and rejects malformed XML', () => {
+      expect(formatStructuredText('<root><child>value</child></root>', 'xml')).toEqual({
+        success: true,
+        data: '<root>\n  <child>\n    value\n  </child>\n</root>',
+      });
+      expect(formatStructuredText('<root><child></root>', 'xml')).toEqual({
+        success: false,
+        error: 'Invalid XML',
+      });
+    });
+
+    it('validates XML when saving while preserving the entered text', () => {
+      const xml = '<root>\n  <child />\n</root>';
+      expect(xmlToBytes(xml)).toEqual({
+        success: true,
+        bytes: textToBytes(xml),
+      });
+      expect(xmlToBytes('<root>')).toEqual({
+        success: false,
+        error: 'Invalid XML',
+      });
+    });
+
+    it('keeps invalid XML editable when displaying it', () => {
+      const invalidXml = '<root>';
+      expect(bytesToXml(textToBytes(invalidXml))).toEqual({
+        success: true,
+        data: invalidXml,
+      });
     });
   });
 });

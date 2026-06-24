@@ -27,6 +27,7 @@ const {
   dataFormat,
   editValue,
   errorMessage,
+  format,
   formatOptions,
   hasUnsavedChanges,
   isDirty,
@@ -136,6 +137,7 @@ watch(isDirty, (dirty) => {
         :error-message="errorMessage"
         :format-options="formatOptions"
         :is-submitting="isSubmitting"
+        @format="format"
         @save="save"
       />
       <AclTabPanel

@@ -84,6 +84,7 @@ export default {
     acl: '权限',
     meta: '元数据',
     save: '保存',
+    format: '格式化',
     refresh: '刷新',
     selectNode: '选择一个节点查看详情',
     watch: '监听',

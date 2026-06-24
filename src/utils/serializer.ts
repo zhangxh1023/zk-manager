@@ -3,6 +3,8 @@
  * Handles conversion between different formats (text, json, xml, hex, binary) and raw bytes
  */
 
+import xmlFormatter from 'xml-formatter';
+
 export type SerializationFormat = 'text' | 'json' | 'xml' | 'hex' | 'binary';
 
 export interface SerializationResult {
@@ -15,6 +17,28 @@ export interface DeserializationResult {
   success: boolean;
   bytes?: number[];
   error?: string;
+}
+
+export function formatStructuredText(
+  input: string,
+  format: Extract<SerializationFormat, 'json' | 'xml'>,
+): SerializationResult {
+  try {
+    if (format === 'json') {
+      return { success: true, data: JSON.stringify(JSON.parse(input), null, 2) };
+    }
+
+    return {
+      success: true,
+      data: xmlFormatter(input, {
+        indentation: '  ',
+        lineSeparator: '\n',
+        strictMode: true,
+      }),
+    };
+  } catch {
+    return { success: false, error: `Invalid ${format.toUpperCase()}` };
+  }
 }
 
 // Convert raw bytes to string using TextDecoder
@@ -101,36 +125,29 @@ export function jsonToBytes(json: string): DeserializationResult {
 
 // Parse formatted XML string back to bytes (preserves formatting)
 export function xmlToBytes(xmlStr: string): DeserializationResult {
-  try {
-    // For XML, we just preserve the exact string as-is
-    return { success: true, bytes: textToBytes(xmlStr) };
-  } catch (e) {
-    return { success: false, error: String(e) };
+  const validation = formatStructuredText(xmlStr, 'xml');
+  if (!validation.success) {
+    return { success: false, error: validation.error };
   }
+
+  // Preserve the exact XML string entered by the user when saving.
+  return { success: true, bytes: textToBytes(xmlStr) };
 }
 
 // Format bytes as JSON with indentation
 export function bytesToJson(bytes: number[]): SerializationResult {
   const text = bytesToText(bytes);
-  try {
-    const obj = JSON.parse(text);
-    return { success: true, data: JSON.stringify(obj, null, 2) };
-  } catch {
-    // If it's not valid JSON, just return as text
-    return { success: true, data: text };
-  }
+  const result = formatStructuredText(text, 'json');
+  // Keep invalid content editable after switching to the JSON viewer.
+  return result.success ? result : { success: true, data: text };
 }
 
-// Format bytes as XML (basic formatting)
+// Format bytes as XML
 export function bytesToXml(bytes: number[]): SerializationResult {
-  try {
-    const text = bytesToText(bytes);
-    // Basic XML formatting - add newlines after >< if the text contains XML
-    const formatted = text.replace(/>\s*</g, '>\n<');
-    return { success: true, data: formatted };
-  } catch {
-    return { success: true, data: bytesToText(bytes) };
-  }
+  const text = bytesToText(bytes);
+  const result = formatStructuredText(text, 'xml');
+  // Keep invalid content editable after switching to the XML viewer.
+  return result.success ? result : { success: true, data: text };
 }
 
 // Convert bytes to displayable string for a given format
