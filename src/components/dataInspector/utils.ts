@@ -14,6 +14,7 @@ export const FORMAT_OPTIONS: FormatOption[] = [
   { value: 'xml', label: 'XML' },
   { value: 'hex', label: 'Hex' },
   { value: 'binary', label: 'Binary' },
+  { value: 'base64', label: 'Base64' },
 ];
 
 export const MAX_TIMELINE_ENTRIES = 200;

@@ -6,6 +6,7 @@ import { useLogsStore } from '../../../stores/logs';
 import { useZnodeTabsStore, type ZnodeTab } from '../../../stores/znodeTabs';
 import { getErrorMessage } from '../../../utils/errors';
 import {
+  detectSerializationFormat,
   formatBytes,
   formatStructuredText,
   parseBytes,
@@ -19,7 +20,7 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
   const znodeTabsStore = useZnodeTabsStore();
   const logsStore = useLogsStore();
 
-  const dataFormat = ref<SerializationFormat>('text');
+  const dataFormat = ref<SerializationFormat>(detectSerializationFormat(tab.value.znodeData));
   const editValue = ref('');
   const isSubmitting = ref(false);
   const originalValue = ref<string | null>(null);
@@ -43,10 +44,31 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
     }
   };
 
-  watch(() => tab.value.znodeData, syncEditValue, { immediate: true });
+  let suppressNextFormatWatch = false;
+  const applyDetectedFormat = () => {
+    const detectedFormat = detectSerializationFormat(tab.value.znodeData);
+    if (dataFormat.value !== detectedFormat) {
+      suppressNextFormatWatch = true;
+      dataFormat.value = detectedFormat;
+    }
+    syncEditValue();
+  };
+
+  watch(
+    () => [tab.value.connectionUuid, tab.value.path] as const,
+    applyDetectedFormat,
+    { immediate: true },
+  );
+
+  watch(() => tab.value.znodeData, syncEditValue);
 
   let revertingFormat = false;
   watch(dataFormat, async (_, oldFormat) => {
+    if (suppressNextFormatWatch) {
+      suppressNextFormatWatch = false;
+      return;
+    }
+
     if (revertingFormat) {
       revertingFormat = false;
       return;
@@ -70,8 +92,6 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
       );
     }
   });
-
-  watch(() => tab.value.path, syncEditValue);
 
   const format = () => {
     if (dataFormat.value !== 'json' && dataFormat.value !== 'xml') return;

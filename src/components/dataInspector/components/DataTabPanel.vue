@@ -107,6 +107,10 @@ const editValueModel = computed({
         v-else-if="dataFormat === 'binary'"
         v-model="editValueModel"
       />
+      <TextViewer
+        v-else-if="dataFormat === 'base64'"
+        v-model="editValueModel"
+      />
     </div>
   </TabsContent>
 </template>

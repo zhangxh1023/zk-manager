@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  base64ToBytes,
+  bytesToBase64,
   bytesToText,
   textToBytes,
   bytesToHex,
@@ -7,6 +9,7 @@ import {
   bytesToBinary,
   binaryToBytes,
   bytesToXml,
+  detectSerializationFormat,
   formatStructuredText,
   jsonToBytes,
   xmlToBytes,
@@ -68,6 +71,65 @@ describe('Serializer Utilities', () => {
     it('fails on invalid binary', () => {
       expect(binaryToBytes('12345').success).toBe(false);
       expect(binaryToBytes('01').success).toBe(false); // length not multiple of 8
+    });
+  });
+
+  describe('Base64 Conversion', () => {
+    const bytes = [0, 255, 16, 104, 105];
+    const base64 = 'AP8QaGk=';
+
+    it('converts bytes to base64 string', () => {
+      expect(bytesToBase64(bytes)).toBe(base64);
+    });
+
+    it('converts base64 string to bytes', () => {
+      const result = base64ToBytes(base64);
+      expect(result.success).toBe(true);
+      expect(result.bytes).toEqual(bytes);
+    });
+
+    it('allows whitespace in base64 text', () => {
+      const result = base64ToBytes('AP8Q\n aGk=');
+      expect(result.success).toBe(true);
+      expect(result.bytes).toEqual(bytes);
+    });
+
+    it('fails on invalid base64 text', () => {
+      expect(base64ToBytes('not base64!').success).toBe(false);
+      expect(base64ToBytes('abc').success).toBe(false);
+    });
+  });
+
+  describe('Format Detection', () => {
+    it('detects JSON objects and arrays', () => {
+      expect(detectSerializationFormat(textToBytes('{"key":"value"}'))).toBe('json');
+      expect(detectSerializationFormat(textToBytes('[1,2,3]'))).toBe('json');
+    });
+
+    it('keeps JSON scalars as text', () => {
+      expect(detectSerializationFormat(textToBytes('123'))).toBe('text');
+      expect(detectSerializationFormat(textToBytes('true'))).toBe('text');
+      expect(detectSerializationFormat(textToBytes('"hello"'))).toBe('text');
+    });
+
+    it('detects XML text', () => {
+      expect(detectSerializationFormat(textToBytes('<root><child>value</child></root>'))).toBe('xml');
+    });
+
+    it('falls back to text for plain text', () => {
+      expect(detectSerializationFormat(textToBytes('hello zk'))).toBe('text');
+    });
+
+    it('does not auto-detect base64-looking text as base64', () => {
+      expect(detectSerializationFormat(textToBytes('aGk='))).toBe('text');
+    });
+
+    it('falls back to binary for invalid UTF-8 bytes', () => {
+      expect(detectSerializationFormat([0xff])).toBe('binary');
+    });
+
+    it('falls back to binary for valid UTF-8 with binary control characters', () => {
+      expect(detectSerializationFormat([65, 0, 66])).toBe('binary');
     });
   });
 
