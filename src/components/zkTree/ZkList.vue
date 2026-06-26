@@ -34,7 +34,6 @@ const FILTER_DEBOUNCE_MS = 300;
 const currentPath = computed(() => zkTreeStore.getCurrentPath(props.connectionUuid));
 const children = computed(() => zkTreeStore.getChildren(props.connectionUuid, currentPath.value));
 const loading = computed(() => zkTreeStore.isLoading(props.connectionUuid, currentPath.value));
-const error = ref<string | null>(null);
 const searchQuery = ref('');
 const activeFilterQuery = ref('');
 const filteredChildren = computed(() => filterZkListNodes(children.value, activeFilterQuery.value));
@@ -42,7 +41,6 @@ const showCreateNodeDialog = ref(false);
 const createNodePath = ref('/');
 const createNodeData = ref('');
 const createMissingParents = ref(false);
-const createNodeError = ref('');
 const isCreatingNode = ref(false);
 
 // Local input state
@@ -80,12 +78,10 @@ const clearFilter = () => {
 // Sync input when currentPath changes externally
 watch(currentPath, (newPath) => {
   inputPath.value = newPath;
-  error.value = null;
 }, { immediate: true });
 
 onMounted(async () => {
   if (props.connected) {
-    error.value = null;
     await zkTreeStore.navigateTo(props.connectionUuid, '/');
     inputPath.value = '/';
   }
@@ -93,13 +89,11 @@ onMounted(async () => {
 
 watch(() => props.connected, async (connected) => {
   if (connected) {
-    error.value = null;
     await zkTreeStore.navigateTo(props.connectionUuid, '/');
     inputPath.value = '/';
   } else {
     zkTreeStore.clearConnection(props.connectionUuid);
     inputPath.value = '/';
-    error.value = null;
     clearFilter();
     showCreateNodeDialog.value = false;
   }
@@ -110,7 +104,6 @@ onBeforeUnmount(clearFilterDebounce);
 const handleInput = (e: Event) => {
   const target = e.target as HTMLInputElement;
   inputPath.value = target.value;
-  error.value = null;
 };
 
 const handleNavigate = async () => {
@@ -121,11 +114,10 @@ const handleNavigate = async () => {
     return;
   }
 
-  error.value = null;
   try {
     await zkTreeStore.navigateTo(props.connectionUuid, inputPath.value);
   } catch (err) {
-    error.value = getErrorMessage(err);
+    showToast.error(getErrorMessage(err));
     // Restore input to current path
     inputPath.value = currentPath.value;
   }
@@ -138,14 +130,19 @@ const handleKeydown = (e: KeyboardEvent) => {
 };
 
 const navigateUp = async () => {
-  error.value = null;
-  await zkTreeStore.navigateUp(props.connectionUuid);
-  inputPath.value = zkTreeStore.getCurrentPath(props.connectionUuid);
+  try {
+    await zkTreeStore.navigateUp(props.connectionUuid);
+    inputPath.value = zkTreeStore.getCurrentPath(props.connectionUuid);
+  } catch (err) {
+    showToast.error(getErrorMessage(err));
+    inputPath.value = currentPath.value;
+  }
 };
 
 const refresh = () => {
-  error.value = null;
-  zkTreeStore.refreshCurrentPath(props.connectionUuid);
+  zkTreeStore.refreshCurrentPath(props.connectionUuid).catch((err) => {
+    showToast.error(getErrorMessage(err));
+  });
 };
 
 const defaultCreatePath = () => currentPath.value === '/' ? '/' : `${currentPath.value}/`;
@@ -154,19 +151,17 @@ const openCreateNodeDialog = () => {
   createNodePath.value = defaultCreatePath();
   createNodeData.value = '';
   createMissingParents.value = false;
-  createNodeError.value = '';
   showCreateNodeDialog.value = true;
 };
 
 const createNodeByFullPath = async () => {
   const normalizedPath = normalizeCreateNodePath(createNodePath.value);
   if (!normalizedPath) {
-    createNodeError.value = t('createNode.invalidFullPath');
+    showToast.error(t('createNode.invalidFullPath'));
     return;
   }
 
   isCreatingNode.value = true;
-  createNodeError.value = '';
   try {
     const data = Array.from(new TextEncoder().encode(createNodeData.value));
     if (createMissingParents.value) {
@@ -189,7 +184,6 @@ const createNodeByFullPath = async () => {
     showToast.success(t('node.createSuccess', { path: normalizedPath }));
   } catch (err) {
     const message = getErrorMessage(err);
-    createNodeError.value = message;
     await logsStore.addLog(
       props.connectionUuid,
       'CREATE',
@@ -200,11 +194,6 @@ const createNodeByFullPath = async () => {
   } finally {
     isCreatingNode.value = false;
   }
-};
-
-const clearError = () => {
-  error.value = null;
-  inputPath.value = currentPath.value;
 };
 </script>
 
@@ -233,7 +222,6 @@ const clearError = () => {
           type="text"
           :value="inputPath"
           class="w-full h-8 pl-8 pr-10 text-sm rounded-md border border-border bg-background transition-colors outline-none focus:border-primary"
-          :class="error ? 'border-destructive' : ''"
           placeholder="/path/to/node"
           @input="handleInput"
           @keydown.enter.prevent="handleKeydown"
@@ -301,23 +289,9 @@ const clearError = () => {
       </div>
     </div>
 
-    <!-- Error State -->
-    <div
-      v-if="error"
-      class="px-2 py-1.5 bg-destructive/10 text-xs text-destructive flex items-center justify-between"
-    >
-      <span class="truncate">{{ error }}</span>
-      <button
-        class="shrink-0 hover:text-foreground ml-2"
-        @click="clearError"
-      >
-        ✕
-      </button>
-    </div>
-
     <!-- Loading State -->
     <div
-      v-else-if="loading"
+      v-if="loading"
       class="flex items-center justify-center py-6 text-muted-foreground text-xs"
     >
       <RefreshCw class="w-3 h-3 animate-spin mr-2" />
@@ -398,12 +372,6 @@ const clearError = () => {
             >
             <span>{{ t('createNode.createMissingParents') }}</span>
           </label>
-          <p
-            v-if="createNodeError"
-            class="text-sm text-red-500"
-          >
-            {{ createNodeError }}
-          </p>
         </div>
         <DialogFooter>
           <Button

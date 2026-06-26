@@ -24,7 +24,6 @@ import type { ZkAclEntry } from '../../../types/znodeDetails';
 const props = defineProps<{
   allPermissionsSelected: boolean;
   editingAcl: ZkAclEntry | null;
-  errorMessage: string;
   isSubmitting: boolean;
   open: boolean;
   permissionOptions: string[];
@@ -138,12 +137,6 @@ const inputChecked = (event: Event) => (event.target as HTMLInputElement).checke
           {{ t('connection.save') }}
         </Button>
       </DialogFooter>
-      <p
-        v-if="errorMessage"
-        class="text-sm text-red-500"
-      >
-        {{ errorMessage }}
-      </p>
     </DialogContent>
   </Dialog>
 </template>

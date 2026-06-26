@@ -77,7 +77,7 @@ const mountLeftBlock = () => {
         AppMenus: { template: '<div />', methods: { openSettings: vi.fn(), openLogs: vi.fn() } },
         Button: stubWithSlot,
         ConnectionDialog: {
-          props: ['open', 'mode', 'connection', 'saving', 'testing', 'errorMessage'],
+          props: ['open', 'mode', 'connection', 'saving', 'testing'],
           template: '<div v-if="open" data-testid="connection-dialog">{{ mode }}:{{ connection?.uuid }}</div>',
         },
         ContextMenu: stubWithSlot,

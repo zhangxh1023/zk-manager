@@ -26,7 +26,6 @@ const tabRef = toRef(props, 'tab');
 const {
   dataFormat,
   editValue,
-  errorMessage,
   format,
   formatOptions,
   hasUnsavedChanges,
@@ -43,7 +42,6 @@ const {
   tabRef,
   hasUnsavedChanges,
   isSubmitting,
-  errorMessage,
 );
 
 const {
@@ -79,7 +77,7 @@ const {
   toggleAllAclPermissions,
   updateAclField,
   validateAndSaveAcl,
-} = useAclEditor(tabRef, isSubmitting, errorMessage);
+} = useAclEditor(tabRef, isSubmitting);
 
 const statRows = computed(() => getStatRows(tabRef.value.stat));
 
@@ -134,7 +132,6 @@ watch(isDirty, (dirty) => {
       <DataTabPanel
         v-model:data-format="dataFormat"
         v-model:edit-value="editValue"
-        :error-message="errorMessage"
         :format-options="formatOptions"
         :is-submitting="isSubmitting"
         @format="format"
@@ -164,7 +161,6 @@ watch(isDirty, (dirty) => {
       v-model:open="showAclDialog"
       :all-permissions-selected="allPermissionsSelected"
       :editing-acl="editingAcl"
-      :error-message="errorMessage"
       :is-submitting="isSubmitting"
       :permission-options="permissionOptions"
       :scheme-hint="schemeHint"

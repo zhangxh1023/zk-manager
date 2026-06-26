@@ -11,7 +11,6 @@ export const useNodeActions = (
   tab: Ref<ZnodeTab>,
   hasUnsavedChanges: () => boolean,
   isSubmitting: Ref<boolean>,
-  errorMessage: Ref<string>,
 ) => {
   const { t } = useI18n();
   const znodeTabsStore = useZnodeTabsStore();
@@ -25,7 +24,6 @@ export const useNodeActions = (
       return;
     }
     isSubmitting.value = true;
-    errorMessage.value = '';
     try {
       const details = await zkApi.getDetails(tab.value.connectionUuid, tab.value.path);
       znodeTabsStore.updateTab(tab.value.connectionUuid, tab.value.path, {
@@ -40,7 +38,7 @@ export const useNodeActions = (
       if (msg.includes('NoNode') || msg.includes('does not exist')) {
         znodeTabsStore.setDeleted(tab.value.connectionUuid, tab.value.path, true);
       }
-      errorMessage.value = msg;
+      showToast.error(msg);
     } finally {
       isSubmitting.value = false;
     }

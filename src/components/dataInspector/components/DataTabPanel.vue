@@ -23,7 +23,6 @@ const XMLViewer = defineAsyncComponent(() => import('./XMLViewer.vue'));
 const props = defineProps<{
   dataFormat: SerializationFormat;
   editValue: string;
-  errorMessage: string;
   formatOptions: FormatOption[];
   isSubmitting: boolean;
 }>();
@@ -109,11 +108,5 @@ const editValueModel = computed({
         v-model="editValueModel"
       />
     </div>
-    <p
-      v-if="errorMessage"
-      class="px-2 text-sm text-red-500 shrink-0"
-    >
-      {{ errorMessage }}
-    </p>
   </TabsContent>
 </template>

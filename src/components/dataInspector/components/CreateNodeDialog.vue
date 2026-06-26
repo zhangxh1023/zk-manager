@@ -15,7 +15,6 @@ import { Textarea } from '../../ui/textarea';
 
 const props = defineProps<{
   createMissingParents: boolean;
-  errorMessage: string;
   isSubmitting: boolean;
   nodeData: string;
   nodeName: string;
@@ -91,12 +90,6 @@ const createMissingParentsModel = computed({
           >
           <span>{{ t('createNode.createMissingParents') }}</span>
         </label>
-        <p
-          v-if="errorMessage"
-          class="text-sm text-red-500"
-        >
-          {{ errorMessage }}
-        </p>
       </div>
       <DialogFooter>
         <Button

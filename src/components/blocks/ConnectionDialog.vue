@@ -23,7 +23,6 @@ const props = defineProps<{
   mode: 'add' | 'edit';
   saving?: boolean;
   testing?: boolean;
-  errorMessage?: string;
 }>();
 
 const emit = defineEmits<{
@@ -279,12 +278,6 @@ const handleTest = () => {
       </Tabs>
 
       <DialogFooter class="p-5 pt-4 border-t border-border/50 bg-muted/20">
-        <p
-          v-if="errorMessage"
-          class="mr-auto text-sm text-destructive"
-        >
-          {{ errorMessage }}
-        </p>
         <Button
           variant="ghost"
           :disabled="saving || testing"

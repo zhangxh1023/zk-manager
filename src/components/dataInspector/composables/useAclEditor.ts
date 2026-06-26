@@ -5,6 +5,7 @@ import { useLogsStore } from '../../../stores/logs';
 import { useZnodeTabsStore, type ZnodeTab } from '../../../stores/znodeTabs';
 import type { ZkAclEntry } from '../../../types/znodeDetails';
 import { getErrorMessage } from '../../../utils/errors';
+import { showToast } from '../../../utils/toast';
 
 export const PERMISSION_OPTIONS = ['READ', 'WRITE', 'CREATE', 'DELETE', 'ADMIN'];
 export const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
@@ -12,7 +13,6 @@ export const SCHEME_OPTIONS = ['world', 'auth', 'digest'];
 export const useAclEditor = (
   tab: Ref<ZnodeTab>,
   isSubmitting: Ref<boolean>,
-  errorMessage: Ref<string>,
 ) => {
   const { t } = useI18n();
   const znodeTabsStore = useZnodeTabsStore();
@@ -22,6 +22,10 @@ export const useAclEditor = (
   const showAclDialog = ref(false);
   const showAclDeleteDialog = ref(false);
   const aclToDelete = ref<ZkAclEntry | null>(null);
+
+  const setError = (message: string) => {
+    showToast.error(message);
+  };
 
   const openEditAcl = (acl: ZkAclEntry) => {
     editingAcl.value = { ...acl };
@@ -36,7 +40,6 @@ export const useAclEditor = (
   const saveAcl = async () => {
     if (!editingAcl.value) return;
     isSubmitting.value = true;
-    errorMessage.value = '';
     try {
       if (!tab.value.stat) {
         throw new Error(t('node.refreshBeforeSave'));
@@ -62,7 +65,7 @@ export const useAclEditor = (
       await logsStore.addLog('current', 'SET_ACL', `Updated ACL of ${tab.value.path}`);
       showAclDialog.value = false;
     } catch (error) {
-      errorMessage.value = getErrorMessage(error);
+      setError(getErrorMessage(error));
     } finally {
       isSubmitting.value = false;
     }
@@ -76,7 +79,6 @@ export const useAclEditor = (
   const deleteAcl = async () => {
     if (!aclToDelete.value) return;
     isSubmitting.value = true;
-    errorMessage.value = '';
     try {
       if (!tab.value.stat) {
         throw new Error(t('node.refreshBeforeSave'));
@@ -100,7 +102,7 @@ export const useAclEditor = (
       showAclDeleteDialog.value = false;
       aclToDelete.value = null;
     } catch (error) {
-      errorMessage.value = getErrorMessage(error);
+      setError(getErrorMessage(error));
     } finally {
       isSubmitting.value = false;
     }
@@ -168,15 +170,15 @@ export const useAclEditor = (
     if (!editingAcl.value) return;
     const { scheme, id } = editingAcl.value;
     if (scheme === 'world' && id !== 'anyone') {
-      errorMessage.value = t('acl.invalidWorldId');
+      setError(t('acl.invalidWorldId'));
       return;
     }
     if (scheme === 'digest' && !id.includes(':')) {
-      errorMessage.value = t('acl.invalidDigestId');
+      setError(t('acl.invalidDigestId'));
       return;
     }
     if (editingAcl.value.permission === 'NONE') {
-      errorMessage.value = t('acl.invalidPermission');
+      setError(t('acl.invalidPermission'));
       return;
     }
     await saveAcl();

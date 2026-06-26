@@ -48,7 +48,6 @@ const currentDialogMode = ref<'add' | 'edit'>('add');
 const activeConnectionToEdit = ref<Connection | null>(null);
 const connectionDialogSaving = ref(false);
 const connectionDialogTesting = ref(false);
-const connectionDialogError = ref('');
 const connectionToDelete = ref<Connection | null>(null);
 const isDeletingConnection = ref(false);
 const draggedConnectionUuid = ref<string | null>(null);
@@ -375,7 +374,6 @@ const onConnectionClick = (conn: Connection, event: MouseEvent) => {
 const openAddDialog = () => {
   currentDialogMode.value = 'add';
   activeConnectionToEdit.value = null;
-  connectionDialogError.value = '';
   showConnectionDialog.value = true;
 };
 
@@ -393,7 +391,6 @@ const openEditDialog = async (conn: Connection, event?: Event) => {
     }
   }
   currentDialogMode.value = 'edit';
-  connectionDialogError.value = '';
   const secrets = await connectionsStore.loadConnectionSecrets(conn.uuid);
   activeConnectionToEdit.value = { ...conn, ...secrets };
   showConnectionDialog.value = true;
@@ -429,7 +426,6 @@ const deleteConnection = async () => {
 
 const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string }) => {
   connectionDialogSaving.value = true;
-  connectionDialogError.value = '';
   try {
     if (currentDialogMode.value === 'add') {
       const { v4: uuidv4 } = await import('uuid');
@@ -441,7 +437,6 @@ const onDialogSave = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
     showConnectionDialog.value = false;
   } catch (error) {
     const errorMessage = getErrorMessage(error);
-    connectionDialogError.value = errorMessage;
     showToast.error(errorMessage);
   } finally {
     connectionDialogSaving.value = false;
@@ -452,7 +447,6 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
   if (!connData.url) return;
   const testUuid = `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   connectionDialogTesting.value = true;
-  connectionDialogError.value = '';
   let trustUnknownSshHostKey = false;
   try {
     for (;;) {
@@ -486,7 +480,6 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
     showToast.success(t('connection.testSuccess'));
   } catch (error) {
     const errorMessage = getErrorMessage(error);
-    connectionDialogError.value = errorMessage;
     showToast.error(t('connection.testFailed', { message: errorMessage }));
   } finally {
     await zkApi.disconnect(testUuid).catch(() => {});
@@ -728,7 +721,6 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
       :connection="activeConnectionToEdit"
       :saving="connectionDialogSaving"
       :testing="connectionDialogTesting"
-      :error-message="connectionDialogError"
       @save="onDialogSave"
       @test="onDialogTest"
     />

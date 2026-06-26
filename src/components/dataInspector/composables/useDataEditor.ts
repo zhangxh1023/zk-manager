@@ -22,7 +22,6 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
   const dataFormat = ref<SerializationFormat>('text');
   const editValue = ref('');
   const isSubmitting = ref(false);
-  const errorMessage = ref('');
   const originalValue = ref<string | null>(null);
   const isDirty = computed(() =>
     originalValue.value !== null && editValue.value !== originalValue.value,
@@ -30,14 +29,17 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
 
   const hasUnsavedChanges = () => isDirty.value;
 
+  const setError = (message: string) => {
+    showToast.error(message);
+  };
+
   const syncEditValue = () => {
     const result = formatBytes(tab.value.znodeData, dataFormat.value);
     if (result.success && result.data !== undefined) {
       editValue.value = result.data;
       originalValue.value = result.data;
-      errorMessage.value = '';
     } else {
-      errorMessage.value = result.error || 'Failed to format data';
+      setError(result.error || 'Failed to format data');
     }
   };
 
@@ -74,10 +76,9 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
   const format = () => {
     if (dataFormat.value !== 'json' && dataFormat.value !== 'xml') return;
 
-    errorMessage.value = '';
     const result = formatStructuredText(editValue.value, dataFormat.value);
     if (!result.success || result.data === undefined) {
-      errorMessage.value = result.error || 'Failed to format data';
+      setError(result.error || 'Failed to format data');
       return;
     }
 
@@ -86,11 +87,10 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
 
   const save = async () => {
     isSubmitting.value = true;
-    errorMessage.value = '';
     try {
       const result = parseBytes(editValue.value, dataFormat.value);
       if (!result.success || !result.bytes) {
-        errorMessage.value = result.error || 'Failed to parse data';
+        setError(result.error || 'Failed to parse data');
         isSubmitting.value = false;
         return;
       }
@@ -124,7 +124,6 @@ export const useDataEditor = (tab: Ref<ZnodeTab>) => {
   return {
     dataFormat,
     editValue,
-    errorMessage,
     format,
     formatOptions: FORMAT_OPTIONS,
     hasUnsavedChanges,
