@@ -104,33 +104,13 @@ export function binaryToBytes(binary: string): DeserializationResult {
   }
 }
 
-// Parse formatted JSON string back to object, then return bytes
+// Convert JSON viewer text to bytes without validating, so save never blocks edits.
 export function jsonToBytes(json: string): DeserializationResult {
-  try {
-    // First try to parse as-is (preserves formatting if user formatted it)
-    const obj = JSON.parse(json);
-    const str = JSON.stringify(obj);
-    return { success: true, bytes: textToBytes(str) };
-  } catch {
-    // If it fails, try minifying
-    try {
-      const obj = JSON.parse(json.replace(/\s+/g, ' '));
-      const str = JSON.stringify(obj);
-      return { success: true, bytes: textToBytes(str) };
-    } catch {
-      return { success: false, error: 'Invalid JSON' };
-    }
-  }
+  return { success: true, bytes: textToBytes(json) };
 }
 
-// Parse formatted XML string back to bytes (preserves formatting)
+// Convert XML viewer text to bytes without validating, so save never blocks edits.
 export function xmlToBytes(xmlStr: string): DeserializationResult {
-  const validation = formatStructuredText(xmlStr, 'xml');
-  if (!validation.success) {
-    return { success: false, error: validation.error };
-  }
-
-  // Preserve the exact XML string entered by the user when saving.
   return { success: true, bytes: textToBytes(xmlStr) };
 }
 

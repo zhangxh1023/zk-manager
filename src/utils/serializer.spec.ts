@@ -74,7 +74,7 @@ describe('Serializer Utilities', () => {
   describe('JSON Conversion', () => {
     const obj = { key: 'value', num: 123 };
     const jsonStr = '{\n  "key": "value",\n  "num": 123\n}';
-    const jsonBytes = Array.from(new TextEncoder().encode(JSON.stringify(obj)));
+    const jsonBytes = textToBytes(JSON.stringify(obj));
 
     it('formats bytes to JSON string', () => {
       const result = bytesToJson(jsonBytes);
@@ -83,14 +83,17 @@ describe('Serializer Utilities', () => {
       expect(result.data).toBe(JSON.stringify(obj, null, 2));
     });
 
-    it('parses formatted JSON back to bytes', () => {
+    it('converts JSON text to bytes without validating or minifying', () => {
       const result = jsonToBytes(jsonStr);
       expect(result.success).toBe(true);
-      expect(result.bytes).toEqual(jsonBytes);
+      expect(result.bytes).toEqual(textToBytes(jsonStr));
     });
 
-    it('fails gracefully on invalid JSON', () => {
-      expect(jsonToBytes('{invalid}').success).toBe(false);
+    it('allows invalid JSON text when saving', () => {
+      expect(jsonToBytes('{invalid}')).toEqual({
+        success: true,
+        bytes: textToBytes('{invalid}'),
+      });
       // bytesToJson returns text if invalid
       const invalidBytes = textToBytes('invalid json');
       expect(bytesToJson(invalidBytes).data).toBe('invalid json');
@@ -120,15 +123,15 @@ describe('Serializer Utilities', () => {
       });
     });
 
-    it('validates XML when saving while preserving the entered text', () => {
+    it('converts XML text to bytes without validating', () => {
       const xml = '<root>\n  <child />\n</root>';
       expect(xmlToBytes(xml)).toEqual({
         success: true,
         bytes: textToBytes(xml),
       });
       expect(xmlToBytes('<root>')).toEqual({
-        success: false,
-        error: 'Invalid XML',
+        success: true,
+        bytes: textToBytes('<root>'),
       });
     });
 
