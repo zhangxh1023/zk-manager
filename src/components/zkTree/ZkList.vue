@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch, ref } from 'vue';
-import { ArrowLeft, ArrowRight, Plus, RefreshCw, Search } from 'lucide-vue-next';
+import {
+  ArrowLeft,
+  ArrowRight,
+  FileJson,
+  Plus,
+  RefreshCw,
+  Search,
+  Upload,
+} from 'lucide-vue-next';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { useLogsStore } from '../../stores/logs';
 import ListNode from './ListNode.vue';
@@ -19,7 +27,17 @@ import {
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { filterZkListNodes, normalizeCreateNodePath } from './utils';
+import {
+  buildZnodeImportPlan,
+  findZnodeImportConflicts,
+  importZnodeSubtree,
+  selectZnodeImportFile,
+  type SelectedZnodeImportFile,
+  type ZnodeImportConflictPolicy,
+} from '../../composables/useZnodeImport';
+import { confirmDialog } from '../../composables/useConfirmDialog';
 
 const props = defineProps<{
   connectionUuid: string;
@@ -42,6 +60,14 @@ const createNodePath = ref('/');
 const createNodeData = ref('');
 const createMissingParents = ref(false);
 const isCreatingNode = ref(false);
+const createNodeMode = ref<'manual' | 'import'>('manual');
+const selectedImportFile = ref<SelectedZnodeImportFile | null>(null);
+const importTargetPath = ref('/');
+const importConflictPolicy = ref<ZnodeImportConflictPolicy>('skip');
+const isSelectingImportFile = ref(false);
+const isImportingNode = ref(false);
+const isCreateDialogBusy = computed(() =>
+  isCreatingNode.value || isSelectingImportFile.value || isImportingNode.value);
 
 // Local input state
 const inputPath = ref('/');
@@ -151,6 +177,10 @@ const openCreateNodeDialog = () => {
   createNodePath.value = defaultCreatePath();
   createNodeData.value = '';
   createMissingParents.value = false;
+  createNodeMode.value = 'manual';
+  selectedImportFile.value = null;
+  importTargetPath.value = '/';
+  importConflictPolicy.value = 'skip';
   showCreateNodeDialog.value = true;
 };
 
@@ -193,6 +223,92 @@ const createNodeByFullPath = async () => {
     showToast.error(`${t('node.createFailed')}: ${message}`);
   } finally {
     isCreatingNode.value = false;
+  }
+};
+
+const chooseImportFile = async () => {
+  if (isCreateDialogBusy.value) return;
+  isSelectingImportFile.value = true;
+  try {
+    const selectedFile = await selectZnodeImportFile();
+    if (!selectedFile) return;
+    selectedImportFile.value = selectedFile;
+    importTargetPath.value = selectedFile.exportFile.rootPath;
+  } catch (err) {
+    selectedImportFile.value = null;
+    showToast.error(`${t('createNode.importInvalidFile')}: ${getErrorMessage(err)}`);
+  } finally {
+    isSelectingImportFile.value = false;
+  }
+};
+
+const importNodes = async () => {
+  if (!selectedImportFile.value || isCreateDialogBusy.value) return;
+
+  isImportingNode.value = true;
+  const selectedFile = selectedImportFile.value;
+  try {
+    const plan = buildZnodeImportPlan(selectedFile.exportFile, importTargetPath.value);
+    const conflicts = await findZnodeImportConflicts(props.connectionUuid, plan);
+
+    if (conflicts.length > 0) {
+      const visiblePaths = conflicts.slice(0, 5).join('\n');
+      const remainingCount = Math.max(0, conflicts.length - 5);
+      const pathPreview = remainingCount > 0
+        ? `${visiblePaths}\n${t('createNode.importMoreConflicts', { count: remainingCount })}`
+        : visiblePaths;
+      const messageKey = importConflictPolicy.value === 'overwrite'
+        ? 'createNode.importOverwriteConflictMessage'
+        : 'createNode.importSkipConflictMessage';
+      const confirmed = await confirmDialog({
+        title: t('createNode.importConflictTitle', { count: conflicts.length }),
+        message: t(messageKey, {
+          count: conflicts.length,
+          paths: pathPreview,
+        }),
+        confirmText: t('createNode.importAction'),
+        variant: importConflictPolicy.value === 'overwrite' ? 'destructive' : 'default',
+      });
+      if (!confirmed) return;
+    }
+
+    const result = await importZnodeSubtree({
+      connectionUuid: props.connectionUuid,
+      plan,
+      conflictPolicy: importConflictPolicy.value,
+      existingPaths: conflicts,
+    });
+
+    await logsStore.addLog(
+      props.connectionUuid,
+      'IMPORT',
+      `Imported ${selectedFile.filePath} to ${plan.targetRootPath}: `
+      + `${result.createdCount} created, ${result.overwrittenCount} overwritten, `
+      + `${result.skippedCount} skipped`,
+    );
+    await zkTreeStore.onNodeCreatedAtPath(props.connectionUuid, plan.targetRootPath, {
+      invalidateAncestors: true,
+      refreshCurrentPath: true,
+    }).catch((refreshError) => {
+      showToast.error(getErrorMessage(refreshError));
+    });
+    showCreateNodeDialog.value = false;
+    showToast.success(t('createNode.importSuccess', {
+      created: result.createdCount,
+      overwritten: result.overwrittenCount,
+      skipped: result.skippedCount,
+    }));
+  } catch (err) {
+    const message = getErrorMessage(err);
+    await logsStore.addLog(
+      props.connectionUuid,
+      'IMPORT',
+      `Failed to import ${selectedFile.filePath}: ${message}`,
+      false,
+    );
+    showToast.error(`${t('createNode.importFailed')}: ${message}`);
+  } finally {
+    isImportingNode.value = false;
   }
 };
 </script>
@@ -279,7 +395,7 @@ const createNodeByFullPath = async () => {
         <button
           type="button"
           :aria-label="t('createNode.fullPathTitle')"
-          :disabled="!connected || isCreatingNode"
+          :disabled="!connected || isCreateDialogBusy"
           class="w-8 h-8 flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed"
           :title="t('createNode.fullPathTitle')"
           @click="openCreateNodeDialog"
@@ -328,64 +444,206 @@ const createNodeByFullPath = async () => {
     </div>
 
     <Dialog v-model:open="showCreateNodeDialog">
-      <DialogContent>
+      <DialogContent class="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{{ t('createNode.fullPathTitle') }}</DialogTitle>
         </DialogHeader>
-        <div class="space-y-4 py-4">
-          <div>
-            <Label
-              for="fullNodePath"
-              class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
+        <Tabs
+          v-model="createNodeMode"
+          class="gap-4"
+        >
+          <TabsList class="grid w-full grid-cols-2">
+            <TabsTrigger
+              value="manual"
+              :disabled="isCreateDialogBusy"
             >
-              {{ t('createNode.nodeFullPath') }}
-            </Label>
-            <Input
-              id="fullNodePath"
-              v-model="createNodePath"
-              :placeholder="t('createNode.placeholder.fullPath')"
-              :disabled="isCreatingNode"
-              @keydown.enter.prevent="createNodeByFullPath"
-            />
-          </div>
-          <div>
-            <Label
-              for="fullNodeData"
-              class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
+              <Plus class="size-4" />
+              {{ t('createNode.manualTab') }}
+            </TabsTrigger>
+            <TabsTrigger
+              value="import"
+              :disabled="isCreateDialogBusy"
             >
-              {{ t('createNode.nodeData') }}
-            </Label>
-            <Textarea
-              id="fullNodeData"
-              v-model="createNodeData"
-              :placeholder="t('createNode.placeholder.data')"
-              :disabled="isCreatingNode"
-              class="font-mono text-xs"
-            />
-          </div>
-          <label class="flex items-center gap-2 text-sm text-muted-foreground">
-            <input
-              v-model="createMissingParents"
-              type="checkbox"
-              class="size-4 rounded border-input"
-              :disabled="isCreatingNode"
-            >
-            <span>{{ t('createNode.createMissingParents') }}</span>
-          </label>
-        </div>
+              <Upload class="size-4" />
+              {{ t('createNode.importTab') }}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent
+            value="manual"
+            class="space-y-4"
+          >
+            <div>
+              <Label
+                for="fullNodePath"
+                class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
+              >
+                {{ t('createNode.nodeFullPath') }}
+              </Label>
+              <Input
+                id="fullNodePath"
+                v-model="createNodePath"
+                :placeholder="t('createNode.placeholder.fullPath')"
+                :disabled="isCreateDialogBusy"
+                @keydown.enter.prevent="createNodeByFullPath"
+              />
+            </div>
+            <div>
+              <Label
+                for="fullNodeData"
+                class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
+              >
+                {{ t('createNode.nodeData') }}
+              </Label>
+              <Textarea
+                id="fullNodeData"
+                v-model="createNodeData"
+                :placeholder="t('createNode.placeholder.data')"
+                :disabled="isCreateDialogBusy"
+                class="font-mono text-xs"
+              />
+            </div>
+            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                v-model="createMissingParents"
+                type="checkbox"
+                class="size-4 rounded border-input"
+                :disabled="isCreateDialogBusy"
+              >
+              <span>{{ t('createNode.createMissingParents') }}</span>
+            </label>
+          </TabsContent>
+
+          <TabsContent
+            value="import"
+            class="space-y-4"
+          >
+            <div class="rounded-md border border-dashed p-4">
+              <div class="flex items-center gap-3">
+                <FileJson class="size-8 shrink-0 text-muted-foreground" />
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium">
+                    {{ selectedImportFile?.fileName || t('createNode.importNoFile') }}
+                  </p>
+                  <p
+                    v-if="selectedImportFile"
+                    class="text-xs text-muted-foreground"
+                  >
+                    {{ t('createNode.importFileSummary', {
+                      root: selectedImportFile.exportFile.rootPath,
+                      count: selectedImportFile.exportFile.nodeCount,
+                    }) }}
+                  </p>
+                  <p
+                    v-else
+                    class="text-xs text-muted-foreground"
+                  >
+                    {{ t('createNode.importFileHint') }}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  :disabled="isCreateDialogBusy"
+                  @click="chooseImportFile"
+                >
+                  {{ isSelectingImportFile
+                    ? t('createNode.importSelecting')
+                    : t('createNode.importChooseFile') }}
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <Label
+                for="importTargetPath"
+                class="text-xs uppercase tracking-wider font-semibold text-muted-foreground"
+              >
+                {{ t('createNode.importTargetPath') }}
+              </Label>
+              <Input
+                id="importTargetPath"
+                v-model="importTargetPath"
+                :placeholder="t('createNode.placeholder.fullPath')"
+                :disabled="isCreateDialogBusy || !selectedImportFile"
+                @keydown.enter.prevent="importNodes"
+              />
+              <p class="mt-1 text-xs text-muted-foreground">
+                {{ t('createNode.importTargetHint') }}
+              </p>
+            </div>
+
+            <fieldset :disabled="isCreateDialogBusy || !selectedImportFile">
+              <legend class="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+                {{ t('createNode.importConflictPolicy') }}
+              </legend>
+              <div class="mt-2 grid grid-cols-2 gap-2">
+                <label
+                  class="cursor-pointer rounded-md border p-3 text-sm transition-colors"
+                  :class="importConflictPolicy === 'skip'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:bg-muted/50'"
+                >
+                  <input
+                    v-model="importConflictPolicy"
+                    type="radio"
+                    value="skip"
+                    class="mr-2"
+                  >
+                  <span class="font-medium">{{ t('createNode.importSkip') }}</span>
+                  <span class="mt-1 block text-xs text-muted-foreground">
+                    {{ t('createNode.importSkipHint') }}
+                  </span>
+                </label>
+                <label
+                  class="cursor-pointer rounded-md border p-3 text-sm transition-colors"
+                  :class="importConflictPolicy === 'overwrite'
+                    ? 'border-destructive bg-destructive/5'
+                    : 'border-border hover:bg-muted/50'"
+                >
+                  <input
+                    v-model="importConflictPolicy"
+                    type="radio"
+                    value="overwrite"
+                    class="mr-2"
+                  >
+                  <span class="font-medium">{{ t('createNode.importOverwrite') }}</span>
+                  <span class="mt-1 block text-xs text-muted-foreground">
+                    {{ t('createNode.importOverwriteHint') }}
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <p class="rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+              {{ t('createNode.importMetadataHint') }}
+            </p>
+          </TabsContent>
+        </Tabs>
         <DialogFooter>
           <Button
             variant="outline"
-            :disabled="isCreatingNode"
+            :disabled="isCreateDialogBusy"
             @click="showCreateNodeDialog = false"
           >
             {{ t('connection.cancel') }}
           </Button>
           <Button
-            :disabled="isCreatingNode"
+            v-if="createNodeMode === 'manual'"
+            :disabled="isCreateDialogBusy"
             @click="createNodeByFullPath"
           >
             {{ t('connection.save') }}
+          </Button>
+          <Button
+            v-else
+            :disabled="isCreateDialogBusy || !selectedImportFile"
+            @click="importNodes"
+          >
+            {{ isImportingNode
+              ? t('createNode.importing')
+              : t('createNode.importAction') }}
           </Button>
         </DialogFooter>
       </DialogContent>
