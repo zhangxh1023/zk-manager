@@ -108,8 +108,9 @@ watch(currentPath, (newPath) => {
 
 onMounted(async () => {
   if (props.connected) {
-    await zkTreeStore.navigateTo(props.connectionUuid, '/');
-    inputPath.value = '/';
+    const restoredPath = zkTreeStore.getCurrentPath(props.connectionUuid);
+    await zkTreeStore.navigateTo(props.connectionUuid, restoredPath);
+    inputPath.value = restoredPath;
   }
 });
 

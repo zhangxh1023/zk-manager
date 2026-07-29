@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import { createPinia, setActivePinia } from 'pinia';
+import { createPinia, setActivePinia, type Pinia } from 'pinia';
 import { nextTick } from 'vue';
 import i18n from '../../i18n';
 import { zkApi } from '../../api/zk';
@@ -26,12 +26,11 @@ type ChildrenByPath = Record<string, string[]>;
 
 const FILTER_DEBOUNCE_MS = 300;
 
-const mountZkList = async (childrenByPath: ChildrenByPath) => {
+const mountZkList = async (childrenByPath: ChildrenByPath, pinia: Pinia = createPinia()) => {
   vi.mocked(zkApi.listChildren).mockImplementation(async (_connectionUuid, path) => {
     return childrenByPath[path] ?? [];
   });
 
-  const pinia = createPinia();
   setActivePinia(pinia);
 
   const wrapper = mount(ZkList, {
@@ -155,5 +154,27 @@ describe('ZkList local filtering', () => {
     expect(renderedNodes(wrapper)).toEqual(['apple', 'appTwo', 'banana']);
 
     wrapper.unmount();
+  });
+
+  it('restores the current path after the connected list is collapsed and expanded again', async () => {
+    const childrenByPath: ChildrenByPath = {
+      '/': ['config'],
+      '/config/123': ['child'],
+    };
+    const pinia = createPinia();
+    const firstWrapper = await mountZkList(childrenByPath, pinia);
+
+    await pathInput(firstWrapper).setValue('/config/123');
+    await pathInput(firstWrapper).trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    expect((pathInput(firstWrapper).element as HTMLInputElement).value).toBe('/config/123');
+
+    firstWrapper.unmount();
+    const secondWrapper = await mountZkList(childrenByPath, pinia);
+
+    expect((pathInput(secondWrapper).element as HTMLInputElement).value).toBe('/config/123');
+    expect(vi.mocked(zkApi.listChildren)).toHaveBeenLastCalledWith('conn-a', '/config/123');
+
+    secondWrapper.unmount();
   });
 });
