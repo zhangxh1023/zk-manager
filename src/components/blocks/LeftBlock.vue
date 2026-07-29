@@ -16,6 +16,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, C
 import ConnectionDialog from './ConnectionDialog.vue';
 import AppMenus from '../appMenus/AppMenus.vue';
 import { confirmDialog } from '../../composables/useConfirmDialog';
+import ZnodeRestoreDialog from '../zkTree/ZnodeRestoreDialog.vue';
 
 const { t } = useI18n();
 const connectionsStore = useConnectionsStore();
@@ -50,6 +51,7 @@ const connectionDialogSaving = ref(false);
 const connectionDialogTesting = ref(false);
 const connectionToDelete = ref<Connection | null>(null);
 const isDeletingConnection = ref(false);
+const restoreConnection = ref<Connection | null>(null);
 const draggedConnectionUuid = ref<string | null>(null);
 const connectionDropTarget = ref<{ uuid: string; position: ConnectionDropPosition } | null>(null);
 const previewConnectionUuids = ref<string[] | null>(null);
@@ -62,6 +64,14 @@ const showDeleteConnectionDialog = computed({
   set: (open: boolean) => {
     if (!open && !isDeletingConnection.value) {
       connectionToDelete.value = null;
+    }
+  },
+});
+const showRestoreDialog = computed({
+  get: () => Boolean(restoreConnection.value),
+  set: (open: boolean) => {
+    if (!open) {
+      restoreConnection.value = null;
     }
   },
 });
@@ -401,6 +411,11 @@ const openDeleteConnectionDialog = (conn: Connection, event?: Event) => {
   connectionToDelete.value = conn;
 };
 
+const openRestoreDialog = (conn: Connection, event?: Event) => {
+  if (event) event.stopPropagation();
+  restoreConnection.value = conn;
+};
+
 const deleteConnection = async () => {
   const conn = connectionToDelete.value;
   if (!conn) return;
@@ -643,6 +658,13 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem
+                v-if="isConnected(conn.uuid)"
+                @select="openRestoreDialog(conn, $event)"
+              >
+                {{ t('backup.restoreMenuItem') }}
+              </ContextMenuItem>
+              <ContextMenuSeparator v-if="isConnected(conn.uuid)" />
+              <ContextMenuItem
                 variant="destructive"
                 @select="openDeleteConnectionDialog(conn, $event)"
               >
@@ -728,6 +750,13 @@ const onDialogTest = async (connData: Omit<Connection, 'uuid'> & { uuid?: string
     <AppMenus
       ref="appMenusRef"
       class="hidden"
+    />
+
+    <ZnodeRestoreDialog
+      v-if="restoreConnection"
+      v-model:open="showRestoreDialog"
+      :connection-uuid="restoreConnection.uuid"
+      :connection-name="restoreConnection.name"
     />
 
     <Dialog v-model:open="showSshHostKeyDialog">

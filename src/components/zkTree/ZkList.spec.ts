@@ -25,6 +25,7 @@ vi.mock('../../api/appData', () => ({
 type ChildrenByPath = Record<string, string[]>;
 
 const FILTER_DEBOUNCE_MS = 300;
+const stubWithSlot = { template: '<div><slot /></div>' };
 
 const mountZkList = async (childrenByPath: ChildrenByPath, pinia: Pinia = createPinia()) => {
   vi.mocked(zkApi.listChildren).mockImplementation(async (_connectionUuid, path) => {
@@ -41,11 +42,22 @@ const mountZkList = async (childrenByPath: ChildrenByPath, pinia: Pinia = create
     global: {
       plugins: [pinia, i18n],
       stubs: {
-        Dialog: { template: '<div />' },
+        Button: { template: '<button type="button"><slot /></button>' },
+        Dialog: {
+          props: ['open'],
+          template: '<div v-if="open"><slot /></div>',
+        },
+        DialogContent: stubWithSlot,
+        DialogFooter: stubWithSlot,
+        DialogHeader: stubWithSlot,
+        DialogTitle: stubWithSlot,
+        Input: { template: '<input>' },
+        Label: stubWithSlot,
         ListNode: {
           props: ['node'],
           template: '<div data-testid="list-node">{{ node.name }}</div>',
         },
+        Textarea: { template: '<textarea />' },
       },
     },
   });
@@ -89,6 +101,21 @@ describe('ZkList local filtering', () => {
     expect(listToolbar.find('button[title="Refresh"]').exists()).toBe(true);
     expect(listToolbar.find('button[title="Create Node"]').exists()).toBe(true);
     expect(listToolbar.find('button[title="Go to path"]').exists()).toBe(false);
+    expect(listToolbar.findAll('button')).toHaveLength(2);
+
+    wrapper.unmount();
+  });
+
+  it('keeps create node as a focused single-purpose dialog', async () => {
+    const wrapper = await mountZkList({
+      '/': ['alpha'],
+    });
+
+    await wrapper.get('button[title="Create Node"]').trigger('click');
+    await nextTick();
+
+    expect(wrapper.text()).toContain('Full node path');
+    expect(wrapper.text()).not.toContain('Import Backup');
 
     wrapper.unmount();
   });

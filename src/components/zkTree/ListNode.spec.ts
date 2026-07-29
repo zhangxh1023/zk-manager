@@ -90,7 +90,7 @@ const mountListNode = () => {
 };
 
 const exportButton = (wrapper: ReturnType<typeof mountListNode>) =>
-  wrapper.findAll('button').find(button => button.text() === 'Export Node');
+  wrapper.findAll('button').find(button => button.text() === 'Export This Subtree…');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -117,9 +117,9 @@ describe('ListNode export action', () => {
     await flushPromises();
 
     expect(confirmDialog).toHaveBeenCalledWith({
-      title: 'Export Node',
+      title: 'Export Subtree',
       message: 'Export node /app with all children, ACLs, and metadata?',
-      confirmText: 'Export Node',
+      confirmText: 'Export This Subtree…',
     });
     expect(exportZnodeSubtree).not.toHaveBeenCalled();
     expect(appDataApi.addLog).not.toHaveBeenCalled();

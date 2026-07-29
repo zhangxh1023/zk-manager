@@ -94,6 +94,19 @@ const mountLeftBlock = () => {
         TooltipContent: stubWithSlot,
         TooltipProvider: stubWithSlot,
         TooltipTrigger: passthroughStub,
+        ZnodeRestoreDialog: {
+          emits: ['update:open'],
+          props: ['connectionUuid', 'connectionName', 'open'],
+          template: `
+            <div
+              v-if="open"
+              data-testid="restore-dialog"
+              :data-connection-uuid="connectionUuid"
+            >
+              {{ connectionName }}
+            </div>
+          `,
+        },
         ZkList: { template: '<div />' },
       },
     },
@@ -296,6 +309,32 @@ describe('LeftBlock connection editing', () => {
     expect(zkApi.disconnect).not.toHaveBeenCalled();
     expect(connectionsStore.isConnected('conn-a')).toBe(true);
     expect(wrapper.find('[data-testid="connection-dialog"]').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+});
+
+describe('LeftBlock backup restore entry', () => {
+  it('shows restore only for connected connections and opens the scoped dialog', async () => {
+    const { connectionsStore, wrapper } = mountLeftBlock();
+
+    expect(wrapper.findAll('button').some(button => button.text() === 'Restore from Backup…'))
+      .toBe(false);
+
+    connectionsStore.connectedSet.add('conn-a');
+    await nextTick();
+
+    const restoreButtons = wrapper
+      .findAll('button')
+      .filter(button => button.text() === 'Restore from Backup…');
+    expect(restoreButtons).toHaveLength(1);
+
+    await restoreButtons[0].trigger('click');
+    await nextTick();
+
+    const restoreDialog = wrapper.get('[data-testid="restore-dialog"]');
+    expect(restoreDialog.attributes('data-connection-uuid')).toBe('conn-a');
+    expect(restoreDialog.text()).toContain('Alpha');
 
     wrapper.unmount();
   });
