@@ -11,7 +11,6 @@ import {
   type SelectedZnodeImportFile,
   type ZnodeImportPlan,
 } from '../../composables/useZnodeImport';
-import { confirmDialog } from '../../composables/useConfirmDialog';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { showToast } from '../../utils/toast';
 import ZnodeRestoreDialog from './ZnodeRestoreDialog.vue';
@@ -27,10 +26,6 @@ vi.mock('../../composables/useZnodeImport', () => ({
   findZnodeImportConflicts: vi.fn(),
   importZnodeSubtree: vi.fn(),
   selectZnodeImportFile: vi.fn(),
-}));
-
-vi.mock('../../composables/useConfirmDialog', () => ({
-  confirmDialog: vi.fn(),
 }));
 
 vi.mock('../../utils/toast', () => ({
@@ -61,7 +56,8 @@ const importPlan: ZnodeImportPlan = {
 
 const stubWithSlot = { template: '<div><slot /></div>' };
 const buttonStub = {
-  template: '<button type="button"><slot /></button>',
+  props: ['variant'],
+  template: '<button type="button" :data-variant="variant"><slot /></button>',
 };
 const inputStub = {
   inheritAttrs: false,
@@ -116,7 +112,6 @@ beforeEach(() => {
   vi.mocked(selectZnodeImportFile).mockResolvedValue(selectedFile);
   vi.mocked(buildZnodeImportPlan).mockReturnValue(importPlan);
   vi.mocked(findZnodeImportConflicts).mockResolvedValue([]);
-  vi.mocked(confirmDialog).mockResolvedValue(true);
   vi.mocked(importZnodeSubtree).mockResolvedValue({
     totalCount: 2,
     createdCount: 2,
@@ -158,25 +153,28 @@ describe('ZnodeRestoreDialog', () => {
     expect(showToast.error).toHaveBeenCalledWith('Could not read backup file: bad schema');
   });
 
-  it('uses a neutral confirmation when existing nodes will be skipped', async () => {
+  it('shows an inline conflict review when existing nodes will be skipped', async () => {
     const { wrapper } = mountDialog();
     vi.mocked(findZnodeImportConflicts).mockResolvedValue(['/app', '/app/config']);
-    vi.mocked(confirmDialog).mockResolvedValue(false);
     await chooseFile(wrapper);
 
     await wrapper.get('[data-testid="restore-submit"]').trigger('click');
     await flushPromises();
 
-    expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      confirmText: 'Restore',
-      title: '2 existing nodes found',
-      variant: 'default',
-    }));
+    const conflictReview = wrapper.get('[data-testid="restore-conflict-review"]');
+    expect(conflictReview.text()).toContain('2 existing nodes found');
+    expect(conflictReview.text()).toContain('/app');
+    expect(wrapper.get('[data-testid="restore-confirm"]').attributes('data-variant'))
+      .toBe('default');
     expect(importZnodeSubtree).not.toHaveBeenCalled();
     expect(wrapper.emitted('update:open')).toBeUndefined();
+
+    await wrapper.findAll('button').find(button => button.text() === 'Back')?.trigger('click');
+    expect(wrapper.find('[data-testid="restore-conflict-review"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="restore-target-path"]').exists()).toBe(true);
   });
 
-  it('restores to a remapped path with destructive confirmation for overwrite', async () => {
+  it('restores to a remapped path after destructive inline confirmation for overwrite', async () => {
     const { treeStore, wrapper } = mountDialog();
     vi.mocked(findZnodeImportConflicts).mockResolvedValue(['/restored/app']);
     vi.mocked(importZnodeSubtree).mockResolvedValue({
@@ -193,10 +191,12 @@ describe('ZnodeRestoreDialog', () => {
     await flushPromises();
 
     expect(buildZnodeImportPlan).toHaveBeenCalledWith(selectedFile.exportFile, '/restored/app');
-    expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      confirmText: 'Restore',
-      variant: 'destructive',
-    }));
+    expect(wrapper.get('[data-testid="restore-confirm"]').attributes('data-variant'))
+      .toBe('destructive');
+
+    await wrapper.get('[data-testid="restore-confirm"]').trigger('click');
+    await flushPromises();
+
     expect(importZnodeSubtree).toHaveBeenCalledWith({
       connectionUuid: 'conn-a',
       plan: importPlan,

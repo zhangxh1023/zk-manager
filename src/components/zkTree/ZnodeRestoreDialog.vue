@@ -9,8 +9,8 @@ import {
   selectZnodeImportFile,
   type SelectedZnodeImportFile,
   type ZnodeImportConflictPolicy,
+  type ZnodeImportPlan,
 } from '../../composables/useZnodeImport';
-import { confirmDialog } from '../../composables/useConfirmDialog';
 import { useLogsStore } from '../../stores/logs';
 import { useZkTreeStore } from '../../stores/zkTree';
 import { getErrorMessage } from '../../utils/errors';
@@ -45,8 +45,23 @@ const targetRootPath = ref('/');
 const conflictPolicy = ref<ZnodeImportConflictPolicy>('skip');
 const isSelectingFile = ref(false);
 const isRestoring = ref(false);
+const pendingConflictReview = ref<{
+  plan: ZnodeImportPlan;
+  conflicts: string[];
+} | null>(null);
 const isBusy = computed(() => isSelectingFile.value || isRestoring.value);
 const logConnectionName = computed(() => props.connectionName || props.connectionUuid);
+const conflictMessage = computed(() => {
+  const pending = pendingConflictReview.value;
+  if (!pending) return '';
+  const messageKey = conflictPolicy.value === 'overwrite'
+    ? 'backup.overwriteConflictMessage'
+    : 'backup.skipConflictMessage';
+  return t(messageKey, {
+    count: pending.conflicts.length,
+    paths: conflictPreview(pending.conflicts),
+  });
+});
 
 const openModel = computed({
   get: () => props.open,
@@ -60,6 +75,7 @@ const resetForm = () => {
   selectedFile.value = null;
   targetRootPath.value = '/';
   conflictPolicy.value = 'skip';
+  pendingConflictReview.value = null;
 };
 
 watch(
@@ -80,6 +96,7 @@ const chooseFile = async () => {
     selectedFile.value = nextFile;
     targetRootPath.value = nextFile.exportFile.rootPath;
     conflictPolicy.value = 'skip';
+    pendingConflictReview.value = null;
   } catch (error) {
     selectedFile.value = null;
     showToast.error(`${t('backup.invalidFile')}: ${getErrorMessage(error)}`);
@@ -96,7 +113,52 @@ const conflictPreview = (conflicts: string[]) => {
     : visiblePaths;
 };
 
-const restoreBackup = async () => {
+const recordRestoreFailure = async (importFile: SelectedZnodeImportFile, error: unknown) => {
+  const message = getErrorMessage(error);
+  await logsStore.addLog(
+    logConnectionName.value,
+    'IMPORT',
+    `Failed to restore ${importFile.filePath}: ${message}`,
+    false,
+  );
+  showToast.error(`${t('backup.restoreFailed')}: ${message}`);
+};
+
+const executeRestore = async (
+  importFile: SelectedZnodeImportFile,
+  plan: ZnodeImportPlan,
+  conflicts: string[],
+) => {
+  const result = await importZnodeSubtree({
+    connectionUuid: props.connectionUuid,
+    plan,
+    conflictPolicy: conflictPolicy.value,
+    existingPaths: conflicts,
+  });
+
+  await logsStore.addLog(
+    logConnectionName.value,
+    'IMPORT',
+    `Restored ${importFile.filePath} to ${plan.targetRootPath}: `
+    + `${result.createdCount} created, ${result.overwrittenCount} overwritten, `
+    + `${result.skippedCount} skipped`,
+  );
+  await zkTreeStore.onNodeCreatedAtPath(props.connectionUuid, plan.targetRootPath, {
+    invalidateAncestors: true,
+    refreshCurrentPath: true,
+  }).catch((refreshError) => {
+    showToast.error(getErrorMessage(refreshError));
+  });
+
+  emit('update:open', false);
+  showToast.success(t('backup.restoreSuccess', {
+    created: result.createdCount,
+    overwritten: result.overwrittenCount,
+    skipped: result.skippedCount,
+  }));
+};
+
+const inspectAndRestore = async () => {
   const importFile = selectedFile.value;
   if (!importFile || isBusy.value) return;
 
@@ -106,60 +168,36 @@ const restoreBackup = async () => {
     const conflicts = await findZnodeImportConflicts(props.connectionUuid, plan);
 
     if (conflicts.length > 0) {
-      const messageKey = conflictPolicy.value === 'overwrite'
-        ? 'backup.overwriteConflictMessage'
-        : 'backup.skipConflictMessage';
-      const confirmed = await confirmDialog({
-        title: t('backup.conflictTitle', { count: conflicts.length }),
-        message: t(messageKey, {
-          count: conflicts.length,
-          paths: conflictPreview(conflicts),
-        }),
-        confirmText: t('backup.restoreAction'),
-        variant: conflictPolicy.value === 'overwrite' ? 'destructive' : 'default',
-      });
-      if (!confirmed) return;
+      pendingConflictReview.value = { plan, conflicts };
+      return;
     }
 
-    const result = await importZnodeSubtree({
-      connectionUuid: props.connectionUuid,
-      plan,
-      conflictPolicy: conflictPolicy.value,
-      existingPaths: conflicts,
-    });
-
-    await logsStore.addLog(
-      logConnectionName.value,
-      'IMPORT',
-      `Restored ${importFile.filePath} to ${plan.targetRootPath}: `
-      + `${result.createdCount} created, ${result.overwrittenCount} overwritten, `
-      + `${result.skippedCount} skipped`,
-    );
-    await zkTreeStore.onNodeCreatedAtPath(props.connectionUuid, plan.targetRootPath, {
-      invalidateAncestors: true,
-      refreshCurrentPath: true,
-    }).catch((refreshError) => {
-      showToast.error(getErrorMessage(refreshError));
-    });
-
-    emit('update:open', false);
-    showToast.success(t('backup.restoreSuccess', {
-      created: result.createdCount,
-      overwritten: result.overwrittenCount,
-      skipped: result.skippedCount,
-    }));
+    await executeRestore(importFile, plan, conflicts);
   } catch (error) {
-    const message = getErrorMessage(error);
-    await logsStore.addLog(
-      logConnectionName.value,
-      'IMPORT',
-      `Failed to restore ${importFile.filePath}: ${message}`,
-      false,
-    );
-    showToast.error(`${t('backup.restoreFailed')}: ${message}`);
+    await recordRestoreFailure(importFile, error);
   } finally {
     isRestoring.value = false;
   }
+};
+
+const confirmConflictRestore = async () => {
+  const importFile = selectedFile.value;
+  const pending = pendingConflictReview.value;
+  if (!importFile || !pending || isBusy.value) return;
+
+  isRestoring.value = true;
+  try {
+    await executeRestore(importFile, pending.plan, pending.conflicts);
+  } catch (error) {
+    await recordRestoreFailure(importFile, error);
+  } finally {
+    isRestoring.value = false;
+  }
+};
+
+const returnToRestoreOptions = () => {
+  if (isBusy.value) return;
+  pendingConflictReview.value = null;
 };
 </script>
 
@@ -175,7 +213,32 @@ const restoreBackup = async () => {
         </p>
       </DialogHeader>
 
-      <div class="space-y-4 py-2">
+      <div
+        v-if="pendingConflictReview"
+        data-testid="restore-conflict-review"
+        class="space-y-3 py-2"
+      >
+        <div
+          class="rounded-md border p-4"
+          :class="conflictPolicy === 'overwrite'
+            ? 'border-destructive/60 bg-destructive/5'
+            : 'border-border bg-muted/30'"
+        >
+          <h3 class="text-sm font-semibold">
+            {{ t('backup.conflictTitle', {
+              count: pendingConflictReview.conflicts.length,
+            }) }}
+          </h3>
+          <p class="mt-3 whitespace-pre-wrap text-xs text-muted-foreground">
+            {{ conflictMessage }}
+          </p>
+        </div>
+      </div>
+
+      <div
+        v-else
+        class="space-y-4 py-2"
+      >
         <div
           data-testid="restore-file-panel"
           class="rounded-md border border-dashed p-4"
@@ -230,7 +293,7 @@ const restoreBackup = async () => {
               data-testid="restore-target-path"
               :placeholder="t('backup.targetPlaceholder')"
               :disabled="isBusy"
-              @keydown.enter.prevent="restoreBackup"
+              @keydown.enter.prevent="inspectAndRestore"
             />
             <p class="mt-1 text-xs text-muted-foreground">
               {{ t('backup.targetHint') }}
@@ -280,15 +343,15 @@ const restoreBackup = async () => {
         <Button
           variant="outline"
           :disabled="isBusy"
-          @click="openModel = false"
+          @click="pendingConflictReview ? returnToRestoreOptions() : (openModel = false)"
         >
-          {{ t('connection.cancel') }}
+          {{ pendingConflictReview ? t('backup.back') : t('connection.cancel') }}
         </Button>
         <Button
           :variant="conflictPolicy === 'overwrite' ? 'destructive' : 'default'"
           :disabled="isBusy || !selectedFile"
-          data-testid="restore-submit"
-          @click="restoreBackup"
+          :data-testid="pendingConflictReview ? 'restore-confirm' : 'restore-submit'"
+          @click="pendingConflictReview ? confirmConflictRestore() : inspectAndRestore()"
         >
           {{ isRestoring ? t('backup.restoring') : t('backup.restoreAction') }}
         </Button>

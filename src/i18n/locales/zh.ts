@@ -210,6 +210,7 @@ export default {
     restoreConnection: '恢复到连接“{name}”',
     restoreAction: '恢复',
     restoring: '正在恢复',
+    back: '返回',
     chooseFile: '选择文件',
     selecting: '正在读取',
     noFile: '尚未选择备份文件',

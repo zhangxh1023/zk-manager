@@ -210,6 +210,7 @@ export default {
     restoreConnection: 'Restore into connection “{name}”',
     restoreAction: 'Restore',
     restoring: 'Restoring',
+    back: 'Back',
     chooseFile: 'Choose File',
     selecting: 'Reading',
     noFile: 'No backup file selected',
